@@ -503,7 +503,7 @@ class MainDashScreen(Screen):
         # Gear indicator
         self.gear_label = Label(
             text='3',
-            font_size='200sp',
+            font_size='245sp',
             bold=True,
             color=(1, 1, 1, 1),
             outline_color=(0, 0, 0, 1),
