@@ -265,8 +265,8 @@ class LapTimerScreen(Screen):
         
         # RPM bar - thick horizontal bar across the top
         self.rpm_arc = RPMArcWidget()
-        self.rpm_arc.size_hint = (0.80, 0.276)
-        self.rpm_arc.pos_hint = {'x': 0.01, 'top': 0.83}
+        self.rpm_arc.size_hint = (0.85, 0.176)
+        self.rpm_arc.pos_hint = {'x': 0.01, 'top': 0.86}
         layout.add_widget(self.rpm_arc)
         
         # RPM number below arc
@@ -275,7 +275,7 @@ class LapTimerScreen(Screen):
             font_size='48sp',
             bold=True,
             color=(1, 1, 1, 1),
-            pos_hint={'x': 0.02, 'center_y': 0.35},
+            pos_hint={'x': 0.02, 'center_y': 0.28},
             size_hint=(0.2, 0.1),
             halign='left'
         )
@@ -285,9 +285,9 @@ class LapTimerScreen(Screen):
         # CLT (Coolant Temp) bottom left
         self.clt_label = Label(
             text='CLT\n185°F',
-            font_size='32sp',
+            font_size='18sp',
             color=(0.4, 0.8, 1, 1),  # Light blue like sketch
-            pos_hint={'x': 0.04, 'y': 0.04},
+            pos_hint={'x': 0.02, 'y': 0.02},
             size_hint=(0.12, 0.15),
             halign='center'
         )
@@ -295,23 +295,22 @@ class LapTimerScreen(Screen):
         
         # ===== CENTER: Lap Times + Speed =====
         
-        # "Current" label 
+        # "Current" label above time
         current_label = Label(
             text='CURRENT',
-            font_size='18sp',
-            bold=True,
+            font_size='14sp',
             color=(0.6, 0.6, 0.6, 1),
-            pos_hint={'center_x': 0.45, 'center_y': 0.44}
+            pos_hint={'center_x': 0.45, 'center_y': 0.58}
         )
         layout.add_widget(current_label)
         
         # Current lap time
         self.current_time_label = Label(
             text='0:00.000',
-            font_size='56sp',
+            font_size='32sp',
             bold=True,
             color=(1, 1, 1, 1),
-            pos_hint={'center_x': 0.45, 'center_y': 0.35},
+            pos_hint={'center_x': 0.45, 'center_y': 0.48},
             halign='center'
         )
         layout.add_widget(self.current_time_label)
@@ -321,7 +320,7 @@ class LapTimerScreen(Screen):
             text='BEST  1:05.432',
             font_size='20sp',
             color=(0, 1, 0, 1),  # Green for best
-            pos_hint={'center_x': 0.45, 'center_y': 0.12},
+            pos_hint={'center_x': 0.45, 'center_y': 0.36},
             halign='center'
         )
         layout.add_widget(self.best_lap_label)
@@ -331,7 +330,7 @@ class LapTimerScreen(Screen):
             text='LAST  1:07.891',
             font_size='20sp',
             color=(1, 1, 1, 1),
-            pos_hint={'center_x': 0.45, 'center_y': 0.06},
+            pos_hint={'center_x': 0.45, 'center_y': 0.26},
             halign='center'
         )
         layout.add_widget(self.last_lap_label)
@@ -342,7 +341,7 @@ class LapTimerScreen(Screen):
             font_size='72sp',
             bold=True,
             color=(1, 0.2, 0.2, 1),  # Red like sketch
-            pos_hint={'center_x': 0.8, 'center_y': 0.15}
+            pos_hint={'center_x': 0.45, 'center_y': 0.15}
         )
         layout.add_widget(self.speed_label)
         
@@ -351,7 +350,7 @@ class LapTimerScreen(Screen):
             text='MPH',
             font_size='20sp',
             color=(1, 0.2, 0.2, 1),
-            pos_hint={'center_x': 0.8, 'center_y': 0.04}
+            pos_hint={'center_x': 0.45, 'center_y': 0.04}
         )
         layout.add_widget(mph_label)
         
@@ -363,14 +362,14 @@ class LapTimerScreen(Screen):
             font_size='220sp',
             bold=True,
             color=(1, 1, 0, 1),  # Yellow like sketch
-            pos_hint={'center_x': 0.91, 'center_y': 0.65}
+            pos_hint={'center_x': 0.88, 'center_y': 0.68}
         )
         layout.add_widget(self.gear_label)
         
         # Throttle bar (T) - smaller
         self.throttle_bar = VerticalBar(color=(0, 1, 0, 1))
         self.throttle_bar.size_hint = (0.018, 0.28)
-        self.throttle_bar.pos_hint = {'x': 0.92, 'y': 0.015}
+        self.throttle_bar.pos_hint = {'x': 0.92, 'y': 0.25}
         layout.add_widget(self.throttle_bar)
         
         # T label
@@ -378,7 +377,7 @@ class LapTimerScreen(Screen):
             text='T',
             font_size='12sp',
             color=(1, 1, 1, 1),
-            pos_hint={'x': 0.92, 'y': 0.3},
+            pos_hint={'x': 0.92, 'y': 0.54},
             size_hint=(0.018, 0.04)
         )
         layout.add_widget(t_label)
@@ -386,7 +385,7 @@ class LapTimerScreen(Screen):
         # Brake bar (B) - smaller
         self.brake_bar = VerticalBar(color=(1, 0, 0, 1))
         self.brake_bar.size_hint = (0.018, 0.28)
-        self.brake_bar.pos_hint = {'x': 0.95, 'y': 0.015}
+        self.brake_bar.pos_hint = {'x': 0.95, 'y': 0.25}
         layout.add_widget(self.brake_bar)
         
         # B label
@@ -394,7 +393,7 @@ class LapTimerScreen(Screen):
             text='B',
             font_size='12sp',
             color=(1, 1, 1, 1),
-            pos_hint={'x': 0.95, 'y': 0.3},
+            pos_hint={'x': 0.95, 'y': 0.54},
             size_hint=(0.018, 0.04)
         )
         layout.add_widget(b_label)
@@ -503,7 +502,7 @@ class MainDashScreen(Screen):
         # Gear indicator
         self.gear_label = Label(
             text='3',
-            font_size='245sp',
+            font_size='200sp',
             bold=True,
             color=(1, 1, 1, 1),
             outline_color=(0, 0, 0, 1),
@@ -673,8 +672,187 @@ class SensorTestScreen(Screen):
         self.oil_label.text = f"Oil Pressure: {data['oil_pressure']} psi"
 
 
+class SettingsScreen(Screen):
+    """Settings page for configuring data source"""
+    
+    def __init__(self, app_ref, **kwargs):
+        super().__init__(**kwargs)
+        self.app_ref = app_ref
+        
+        layout = BoxLayout(orientation='vertical', padding=30, spacing=20)
+        
+        # Title
+        layout.add_widget(Label(
+            text='SETTINGS', 
+            font_size='36sp', 
+            bold=True,
+            size_hint_y=0.15
+        ))
+        
+        # Data Source Section
+        source_layout = BoxLayout(orientation='horizontal', size_hint_y=0.15)
+        source_layout.add_widget(Label(
+            text='Data Source:', 
+            font_size='24sp',
+            size_hint_x=0.4
+        ))
+        
+        # Button container
+        btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_x=0.6)
+        
+        self.sim_btn = self._create_button('SIMULATOR', True)
+        self.serial_btn = self._create_button('ARDUINO/SERIAL', False)
+        
+        btn_layout.add_widget(self.sim_btn)
+        btn_layout.add_widget(self.serial_btn)
+        source_layout.add_widget(btn_layout)
+        layout.add_widget(source_layout)
+        
+        # Serial Port Setting
+        port_layout = BoxLayout(orientation='horizontal', size_hint_y=0.12)
+        port_layout.add_widget(Label(
+            text='Serial Port:', 
+            font_size='20sp',
+            size_hint_x=0.4
+        ))
+        self.port_label = Label(
+            text='/dev/ttyUSB0',
+            font_size='20sp',
+            color=(0.5, 1, 0.5, 1),
+            size_hint_x=0.6
+        )
+        port_layout.add_widget(self.port_label)
+        layout.add_widget(port_layout)
+        
+        # Port selection buttons
+        port_btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=0.12)
+        for port in ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyACM0', '/dev/ttyACM1']:
+            btn = self._create_port_button(port)
+            port_btn_layout.add_widget(btn)
+        layout.add_widget(port_btn_layout)
+        
+        # Baud Rate
+        baud_layout = BoxLayout(orientation='horizontal', size_hint_y=0.12)
+        baud_layout.add_widget(Label(
+            text='Baud Rate:', 
+            font_size='20sp',
+            size_hint_x=0.4
+        ))
+        self.baud_label = Label(
+            text='115200',
+            font_size='20sp',
+            color=(0.5, 1, 0.5, 1),
+            size_hint_x=0.6
+        )
+        baud_layout.add_widget(self.baud_label)
+        layout.add_widget(baud_layout)
+        
+        # Status
+        self.status_label = Label(
+            text='Status: Running in SIMULATOR mode',
+            font_size='18sp',
+            color=(0, 1, 0, 1),
+            size_hint_y=0.12
+        )
+        layout.add_widget(self.status_label)
+        
+        # Apply button
+        apply_btn = self._create_apply_button()
+        layout.add_widget(apply_btn)
+        
+        # Swipe hint
+        layout.add_widget(Label(
+            text='← Swipe to change pages →', 
+            font_size='14sp', 
+            color=(0.5, 0.5, 0.5, 1),
+            size_hint_y=0.08
+        ))
+        
+        self.add_widget(layout)
+        self._update_button_states()
+    
+    def _create_button(self, text, is_sim):
+        from kivy.uix.button import Button
+        btn = Button(
+            text=text,
+            font_size='18sp',
+            background_color=(0.3, 0.3, 0.3, 1)
+        )
+        btn.bind(on_press=lambda x: self._select_source(is_sim))
+        return btn
+    
+    def _create_port_button(self, port):
+        from kivy.uix.button import Button
+        btn = Button(
+            text=port.split('/')[-1],  # Show just ttyUSB0 etc
+            font_size='14sp',
+            background_color=(0.3, 0.3, 0.3, 1)
+        )
+        btn.bind(on_press=lambda x: self._select_port(port))
+        return btn
+    
+    def _create_apply_button(self):
+        from kivy.uix.button import Button
+        btn = Button(
+            text='APPLY & RESTART DATA SOURCE',
+            font_size='20sp',
+            background_color=(0.2, 0.5, 0.2, 1),
+            size_hint_y=0.15
+        )
+        btn.bind(on_press=lambda x: self._apply_settings())
+        return btn
+    
+    def _select_source(self, is_sim):
+        self.app_ref.simulate = is_sim
+        self._update_button_states()
+    
+    def _select_port(self, port):
+        self.app_ref.serial_port = port
+        self.port_label.text = port
+    
+    def _update_button_states(self):
+        if self.app_ref.simulate:
+            self.sim_btn.background_color = (0, 0.6, 0, 1)
+            self.serial_btn.background_color = (0.3, 0.3, 0.3, 1)
+            self.status_label.text = 'Mode: SIMULATOR (test data)'
+            self.status_label.color = (0, 1, 0, 1)
+        else:
+            self.sim_btn.background_color = (0.3, 0.3, 0.3, 1)
+            self.serial_btn.background_color = (0, 0.6, 0, 1)
+            self.status_label.text = f'Mode: SERIAL ({self.app_ref.serial_port})'
+            self.status_label.color = (1, 1, 0, 1)
+    
+    def _apply_settings(self):
+        """Stop current thread and restart with new settings"""
+        # Stop existing thread
+        self.app_ref.can_thread.stop()
+        self.app_ref.can_thread.join(timeout=0.5)
+        
+        # Create and start new thread with current settings
+        self.app_ref.can_thread = CANThread(
+            self.app_ref.signal_buffer,
+            simulate=self.app_ref.simulate,
+            serial_port=self.app_ref.serial_port,
+            baud_rate=int(self.baud_label.text)
+        )
+        self.app_ref.can_thread.start()
+        
+        # Update status
+        if self.app_ref.simulate:
+            self.status_label.text = 'Status: Restarted in SIMULATOR mode'
+            self.status_label.color = (0, 1, 0, 1)
+        else:
+            self.status_label.text = f'Status: Connected to {self.app_ref.serial_port}'
+            self.status_label.color = (0, 1, 0, 1)
+
+
 class RaceDashApp(App):
     """Main Kivy Application"""
+    
+    # Class-level config (set from command line)
+    simulate = True
+    serial_port = '/dev/ttyUSB0'
+    baud_rate = 115200
     
     def build(self):
         # Set window size for PC testing (7" screen is 800x480)
@@ -682,7 +860,12 @@ class RaceDashApp(App):
         
         # Create signal buffer and start threads
         self.signal_buffer = SignalBuffer()
-        self.can_thread = CANThread(self.signal_buffer, simulate=True)
+        self.can_thread = CANThread(
+            self.signal_buffer, 
+            simulate=self.simulate,
+            serial_port=self.serial_port,
+            baud_rate=self.baud_rate
+        )
         self.sensor_thread = SensorThread(self.signal_buffer, simulate=True)
         
         self.can_thread.start()
@@ -695,6 +878,7 @@ class RaceDashApp(App):
         sm.add_widget(LapTimerScreen(self.signal_buffer, name='laptimer'))
         sm.add_widget(MainDashScreen(self.signal_buffer, name='main'))
         sm.add_widget(SensorTestScreen(self.signal_buffer, name='sensors'))
+        sm.add_widget(SettingsScreen(self, name='settings'))
         
         # Bind touch for swipe gestures
         Window.bind(on_touch_down=self.on_touch_down)
@@ -712,13 +896,17 @@ class RaceDashApp(App):
         swipe_distance = touch.x - self.touch_start_x
         
         if abs(swipe_distance) > 100:
-            screens = ['laptimer', 'main', 'sensors']
+            screens = ['laptimer', 'main', 'sensors', 'settings']
             current_idx = screens.index(self.sm.current)
             
             if swipe_distance > 0:
+                # Swipe right - go to previous screen
                 new_idx = (current_idx - 1) % len(screens)
+                self.sm.transition.direction = 'right'
             else:
+                # Swipe left - go to next screen
                 new_idx = (current_idx + 1) % len(screens)
+                self.sm.transition.direction = 'left'
             
             self.sm.current = screens[new_idx]
     
@@ -734,4 +922,38 @@ class RaceDashApp(App):
 
 
 if __name__ == '__main__':
+    import sys
+    
+    # Parse command line arguments
+    # Usage: python race_dash_gui.py [--serial /dev/ttyUSB0] [--baud 115200]
+    simulate = True
+    serial_port = '/dev/ttyUSB0'
+    baud_rate = 115200
+    
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] == '--serial':
+            simulate = False
+            if i + 1 < len(args) and not args[i + 1].startswith('--'):
+                serial_port = args[i + 1]
+                i += 1
+        elif args[i] == '--baud':
+            if i + 1 < len(args):
+                baud_rate = int(args[i + 1])
+                i += 1
+        elif args[i] == '--simulate':
+            simulate = True
+        i += 1
+    
+    if not simulate:
+        print(f"Running with Arduino serial input on {serial_port} at {baud_rate} baud")
+    else:
+        print("Running in simulation mode")
+    
+    # Store config for the app to use
+    RaceDashApp.simulate = simulate
+    RaceDashApp.serial_port = serial_port
+    RaceDashApp.baud_rate = baud_rate
+    
     RaceDashApp().run()
