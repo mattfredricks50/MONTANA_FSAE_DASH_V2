@@ -62,12 +62,14 @@ class SignalBuffer:
 
 
 class CANThread(threading.Thread):
-    """Thread for reading CAN bus data"""
+    """Thread for reading CAN bus data or Serial from Arduino"""
     
-    def __init__(self, signal_buffer, simulate=True):
+    def __init__(self, signal_buffer, simulate=True, serial_port='/dev/ttyUSB0', baud_rate=115200):
         super().__init__(daemon=True)
         self.buffer = signal_buffer
         self.simulate = simulate
+        self.serial_port = serial_port
+        self.baud_rate = baud_rate
         self.stop_event = threading.Event()
         
     def run(self):
@@ -76,16 +78,48 @@ class CANThread(threading.Thread):
         if self.simulate:
             self._simulate_can()
         else:
-            self._read_can()
+            self._read_serial()
+    
+    def _read_serial(self):
+        """Read data from Arduino over Serial"""
+        import serial
+        
+        try:
+            ser = serial.Serial(self.serial_port, self.baud_rate, timeout=0.1)
+            print(f"Connected to {self.serial_port} at {self.baud_rate} baud")
+            
+            while not self.stop_event.is_set():
+                try:
+                    line = ser.readline().decode('utf-8').strip()
+                    if line:
+                        # Parse CSV: rpm,speed,throttle,brake,coolant,oil
+                        parts = line.split(',')
+                        if len(parts) >= 6:
+                            self.buffer.update_multiple({
+                                'rpm': int(parts[0]),
+                                'speed': int(parts[1]),
+                                'throttle': int(parts[2]),
+                                'brake': int(parts[3]),
+                                'coolant_temp': int(parts[4]),
+                                'oil_pressure': int(parts[5])
+                            })
+                except (ValueError, UnicodeDecodeError) as e:
+                    # Skip malformed lines
+                    pass
+                    
+        except serial.SerialException as e:
+            print(f"Serial error: {e}")
+        finally:
+            if 'ser' in locals():
+                ser.close()
     
     def _simulate_can(self):
         """Simulate CAN data for testing"""
         rpm = 1000
         speed = 0
-        rpm_direction = 40  # Even slower RPM change
+        rpm_direction = 40
         
         while not self.stop_event.is_set():
-            # Simulate realistic RPM and speed (up to 13500 RPM)
             rpm += rpm_direction
             if rpm >= 13500:
                 rpm = 13500
@@ -94,19 +128,15 @@ class CANThread(threading.Thread):
                 rpm = 1000
                 rpm_direction = 40
             
-            speed = int(rpm / 100)  # Simple speed correlation
+            speed = int(rpm / 100)
             
-            # Calculate throttle and brake based on RPM direction
             if rpm_direction > 0:
-                # Accelerating - high throttle, no brake
-                throttle = min(100, int((rpm - 1000) / 125))  # 0-100% as RPM increases
+                throttle = min(100, int((rpm - 1000) / 125))
                 brake = 0
             else:
-                # Decelerating - no throttle, high brake
                 throttle = 0
-                brake = min(100, int((13500 - rpm) / 125))  # 0-100% as RPM decreases
+                brake = min(100, int((13500 - rpm) / 125))
             
-            # Update buffer with CAN data
             self.buffer.update_multiple({
                 'rpm': rpm,
                 'speed': speed,
@@ -116,13 +146,7 @@ class CANThread(threading.Thread):
                 'brake': brake
             })
             
-            # Use wait instead of sleep - allows quick interruption
             self.stop_event.wait(0.01)
-    
-    def _read_can(self):
-        """Real CAN bus reading (to be implemented)"""
-        # TODO: Implement with python-can library
-        pass
     
     def stop(self):
         self.stop_event.set()
