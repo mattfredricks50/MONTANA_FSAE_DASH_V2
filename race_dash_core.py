@@ -86,12 +86,16 @@ class CANThread(threading.Thread):
         
         try:
             ser = serial.Serial(self.serial_port, self.baud_rate, timeout=0.1)
-            print(f"Connected to {self.serial_port} at {self.baud_rate} baud")
+            print(f"[SERIAL] Connected to {self.serial_port} at {self.baud_rate} baud")
             
             while not self.stop_event.is_set():
                 try:
                     line = ser.readline().decode('utf-8').strip()
                     if line:
+                        # Skip comment lines
+                        if line.startswith('#'):
+                            continue
+                            
                         # Parse CSV: rpm,speed,throttle,brake,coolant,oil
                         parts = line.split(',')
                         if len(parts) >= 6:
@@ -103,15 +107,19 @@ class CANThread(threading.Thread):
                                 'coolant_temp': int(parts[4]),
                                 'oil_pressure': int(parts[5])
                             })
+                            # Debug: print every 50th update
+                            if int(parts[0]) % 500 < 50:
+                                print(f"[SERIAL] RPM:{parts[0]} SPD:{parts[1]} THR:{parts[2]}")
                 except (ValueError, UnicodeDecodeError) as e:
-                    # Skip malformed lines
+                    print(f"[SERIAL] Parse error: {e} - Line: {line[:50] if line else 'empty'}")
                     pass
                     
         except serial.SerialException as e:
-            print(f"Serial error: {e}")
+            print(f"[SERIAL] Connection error: {e}")
         finally:
             if 'ser' in locals():
                 ser.close()
+                print("[SERIAL] Port closed")
     
     def _simulate_can(self):
         """Simulate CAN data for testing"""
