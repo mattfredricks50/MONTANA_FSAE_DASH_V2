@@ -672,6 +672,205 @@ class SensorTestScreen(Screen):
         self.oil_label.text = f"Oil Pressure: {data['oil_pressure']} psi"
 
 
+class DataMonitorScreen(Screen):
+    """Raw data monitor - shows incoming data from any source"""
+    
+    def __init__(self, signal_buffer, app_ref, **kwargs):
+        super().__init__(**kwargs)
+        self.buffer = signal_buffer
+        self.app_ref = app_ref
+        self.raw_lines = []  # Store last N raw lines
+        self.max_lines = 12
+        self.update_count = 0
+        
+        layout = FloatLayout()
+        
+        # Title with source indicator
+        self.title_label = Label(
+            text='DATA MONITOR - SIMULATOR',
+            font_size='24sp',
+            bold=True,
+            color=(0, 1, 0, 1),
+            pos_hint={'center_x': 0.5, 'top': 0.98},
+            size_hint=(1, 0.08)
+        )
+        layout.add_widget(self.title_label)
+        
+        # Connection status
+        self.status_label = Label(
+            text='Status: Waiting...',
+            font_size='16sp',
+            color=(1, 1, 0, 1),
+            pos_hint={'center_x': 0.5, 'top': 0.90},
+            size_hint=(1, 0.06)
+        )
+        layout.add_widget(self.status_label)
+        
+        # Current parsed values (left side)
+        values_layout = BoxLayout(
+            orientation='vertical',
+            size_hint=(0.35, 0.65),
+            pos_hint={'x': 0.02, 'top': 0.82}
+        )
+        
+        self.parsed_title = Label(text='PARSED VALUES:', font_size='16sp', bold=True, 
+                                   color=(0.5, 0.5, 1, 1), size_hint_y=0.12)
+        self.rpm_val = Label(text='RPM:      0', font_size='18sp', halign='left')
+        self.speed_val = Label(text='Speed:    0', font_size='18sp', halign='left')
+        self.throttle_val = Label(text='Throttle: 0', font_size='18sp', halign='left')
+        self.brake_val = Label(text='Brake:    0', font_size='18sp', halign='left')
+        self.coolant_val = Label(text='Coolant:  0', font_size='18sp', halign='left')
+        self.oil_val = Label(text='Oil:      0', font_size='18sp', halign='left')
+        
+        for lbl in [self.rpm_val, self.speed_val, self.throttle_val, 
+                    self.brake_val, self.coolant_val, self.oil_val]:
+            lbl.bind(size=lbl.setter('text_size'))
+            lbl.halign = 'left'
+            lbl.valign = 'middle'
+        
+        values_layout.add_widget(self.parsed_title)
+        values_layout.add_widget(self.rpm_val)
+        values_layout.add_widget(self.speed_val)
+        values_layout.add_widget(self.throttle_val)
+        values_layout.add_widget(self.brake_val)
+        values_layout.add_widget(self.coolant_val)
+        values_layout.add_widget(self.oil_val)
+        layout.add_widget(values_layout)
+        
+        # Raw data stream (right side)
+        raw_layout = BoxLayout(
+            orientation='vertical',
+            size_hint=(0.58, 0.65),
+            pos_hint={'x': 0.40, 'top': 0.82}
+        )
+        
+        self.raw_title = Label(text='RAW DATA STREAM:', font_size='16sp', bold=True,
+                               color=(0.5, 0.5, 1, 1), size_hint_y=0.12)
+        raw_layout.add_widget(self.raw_title)
+        
+        self.raw_data_label = Label(
+            text='Waiting for data...',
+            font_size='14sp',
+            color=(0, 1, 0, 1),
+            halign='left',
+            valign='top',
+            size_hint_y=0.88
+        )
+        self.raw_data_label.bind(size=self.raw_data_label.setter('text_size'))
+        raw_layout.add_widget(self.raw_data_label)
+        layout.add_widget(raw_layout)
+        
+        # Update rate indicator
+        self.rate_label = Label(
+            text='Update Rate: 0 Hz',
+            font_size='14sp',
+            color=(0.7, 0.7, 0.7, 1),
+            pos_hint={'x': 0.02, 'y': 0.02},
+            size_hint=(0.3, 0.05)
+        )
+        layout.add_widget(self.rate_label)
+        
+        # Timestamp
+        self.time_label = Label(
+            text='Last Update: --',
+            font_size='14sp',
+            color=(0.7, 0.7, 0.7, 1),
+            pos_hint={'center_x': 0.5, 'y': 0.02},
+            size_hint=(0.4, 0.05)
+        )
+        layout.add_widget(self.time_label)
+        
+        # Swipe hint
+        swipe_hint = Label(
+            text='← Swipe →',
+            font_size='12sp',
+            color=(0.4, 0.4, 0.4, 1),
+            pos_hint={'x': 0.85, 'y': 0.02},
+            size_hint=(0.15, 0.05)
+        )
+        layout.add_widget(swipe_hint)
+        
+        self.add_widget(layout)
+        
+        # Track update rate
+        self.last_rpm = 0
+        self.updates_per_sec = 0
+        self.update_counter = 0
+        self.last_rate_check = time.time()
+        
+        Clock.schedule_interval(self.update_display, 1/20.0)  # 20 Hz refresh
+    
+    def update_display(self, dt):
+        data = self.buffer.get_all()
+        
+        # Update source title
+        if hasattr(self.app_ref, 'simulate') and self.app_ref.simulate:
+            self.title_label.text = 'DATA MONITOR - SIMULATOR'
+            self.title_label.color = (0, 1, 0, 1)
+        else:
+            port = getattr(self.app_ref, 'serial_port', 'unknown')
+            self.title_label.text = f'DATA MONITOR - SERIAL ({port.split("/")[-1]})'
+            self.title_label.color = (1, 1, 0, 1)
+        
+        # Update parsed values
+        rpm = data.get('rpm', 0)
+        self.rpm_val.text = f"RPM:      {rpm}"
+        self.speed_val.text = f"Speed:    {data.get('speed', 0)} mph"
+        self.throttle_val.text = f"Throttle: {data.get('throttle', 0)}%"
+        self.brake_val.text = f"Brake:    {data.get('brake', 0)}%"
+        self.coolant_val.text = f"Coolant:  {data.get('coolant_temp', 0)}°F"
+        self.oil_val.text = f"Oil:      {data.get('oil_pressure', 0)} psi"
+        
+        # Color code RPM
+        if rpm > 11000:
+            self.rpm_val.color = (1, 0, 0, 1)  # Red
+        elif rpm > 9000:
+            self.rpm_val.color = (1, 1, 0, 1)  # Yellow
+        else:
+            self.rpm_val.color = (0, 1, 0, 1)  # Green
+        
+        # Track if data is updating
+        if rpm != self.last_rpm:
+            self.update_counter += 1
+            self.last_rpm = rpm
+            
+            # Add to raw lines
+            raw_line = f"{rpm},{data.get('speed',0)},{data.get('throttle',0)},{data.get('brake',0)},{data.get('coolant_temp',0)},{data.get('oil_pressure',0)}"
+            self.raw_lines.append(raw_line)
+            if len(self.raw_lines) > self.max_lines:
+                self.raw_lines.pop(0)
+            
+            self.status_label.text = 'Status: RECEIVING DATA'
+            self.status_label.color = (0, 1, 0, 1)
+        
+        # Update raw data display
+        self.raw_data_label.text = '\n'.join(self.raw_lines) if self.raw_lines else 'Waiting for data...'
+        
+        # Calculate update rate every second
+        now = time.time()
+        if now - self.last_rate_check >= 1.0:
+            self.updates_per_sec = self.update_counter
+            self.update_counter = 0
+            self.last_rate_check = now
+        
+        self.rate_label.text = f'Update Rate: {self.updates_per_sec} Hz'
+        
+        # Color code status based on update rate
+        if self.updates_per_sec == 0:
+            self.status_label.text = 'Status: NO DATA'
+            self.status_label.color = (1, 0, 0, 1)
+        elif self.updates_per_sec < 10:
+            self.status_label.text = 'Status: SLOW DATA'
+            self.status_label.color = (1, 1, 0, 1)
+        
+        # Timestamp
+        timestamp = data.get('timestamp', 0)
+        if timestamp > 0:
+            import datetime
+            dt_str = datetime.datetime.fromtimestamp(timestamp).strftime('%H:%M:%S.%f')[:-3]
+            self.time_label.text = f'Last Update: {dt_str}'
+
+
 class SettingsScreen(Screen):
     """Settings page for configuring data source"""
     
@@ -726,7 +925,7 @@ class SettingsScreen(Screen):
         
         # Port selection buttons
         port_btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=0.12)
-        for port in ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyACM0', '/dev/ttyACM1']:
+        for port in ['/dev/serial0', '/dev/ttyAMA0', '/dev/ttyUSB0', '/dev/ttyACM0']:
             btn = self._create_port_button(port)
             port_btn_layout.add_widget(btn)
         layout.add_widget(port_btn_layout)
@@ -851,7 +1050,7 @@ class RaceDashApp(App):
     
     # Class-level config (set from command line)
     simulate = True
-    serial_port = '/dev/ttyUSB0'
+    serial_port = '/dev/serial0'  # GPIO serial port
     baud_rate = 115200
     
     def build(self):
@@ -878,6 +1077,7 @@ class RaceDashApp(App):
         sm.add_widget(LapTimerScreen(self.signal_buffer, name='laptimer'))
         sm.add_widget(MainDashScreen(self.signal_buffer, name='main'))
         sm.add_widget(SensorTestScreen(self.signal_buffer, name='sensors'))
+        sm.add_widget(DataMonitorScreen(self.signal_buffer, self, name='monitor'))
         sm.add_widget(SettingsScreen(self, name='settings'))
         
         # Bind touch for swipe gestures
@@ -896,7 +1096,7 @@ class RaceDashApp(App):
         swipe_distance = touch.x - self.touch_start_x
         
         if abs(swipe_distance) > 100:
-            screens = ['laptimer', 'main', 'sensors', 'settings']
+            screens = ['laptimer', 'main', 'sensors', 'monitor', 'settings']
             current_idx = screens.index(self.sm.current)
             
             if swipe_distance > 0:
