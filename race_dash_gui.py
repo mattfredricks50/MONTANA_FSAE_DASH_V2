@@ -3,6 +3,12 @@ Race Dash - Kivy GUI
 Step 2: Multi-page touchscreen interface with Lap Timer screen
 """
 
+# MUST be before any Kivy imports - prevents Kivy from eating our args
+import sys
+our_args = sys.argv[1:]  # Save our args
+sys.argv = sys.argv[:1]   # Give Kivy only the script name
+
+# Now import Kivy
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, SlideTransition
 from kivy.uix.label import Label
@@ -1049,7 +1055,7 @@ class RaceDashApp(App):
     """Main Kivy Application"""
     
     # Class-level config (set from command line)
-    simulate = True
+    simulate = False  # Changed to False - use serial by default
     serial_port = '/dev/serial0'  # GPIO serial port
     baud_rate = 115200
     
@@ -1122,15 +1128,14 @@ class RaceDashApp(App):
 
 
 if __name__ == '__main__':
-    import sys
-    
-    # Parse command line arguments
+    # Parse command line arguments (saved at top of file before Kivy import)
     # Usage: python race_dash_gui.py [--serial /dev/ttyUSB0] [--baud 115200]
-    simulate = True
-    serial_port = '/dev/ttyUSB0'
+    simulate = False  # Default to serial mode
+    serial_port = '/dev/serial0'
     baud_rate = 115200
     
-    args = sys.argv[1:]
+    # Use our_args saved at top of file (before Kivy stole them)
+    args = our_args
     i = 0
     while i < len(args):
         if args[i] == '--serial':
