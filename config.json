@@ -1,0 +1,153 @@
+{
+  "screen": {
+    "width": 800,
+    "height": 480,
+    "fps": 30,
+    "fullscreen": false,
+    "title": "Race Dash",
+    "brightness": 100
+  },
+  "engine": {
+    "max_rpm": 13500,
+    "shift_rpm": 10000,
+    "critical_rpm": 11250,
+    "redline_rpm": 12500,
+    "idle_rpm": 1000,
+    "num_gears": 6,
+    "gear_speeds": [
+      15,
+      30,
+      50,
+      70,
+      90,
+      999
+    ]
+  },
+  "warnings": {
+    "coolant_high": 220,
+    "coolant_critical": 240,
+    "oil_low": 25,
+    "oil_critical": 15
+  },
+  "units": {
+    "speed": "mph",
+    "temp": "C",
+    "pressure": "psi"
+  },
+  "data": {
+    "simulate": true,
+    "uart_port": "/dev/ttyAMA0",
+    "uart_baud": 115200
+  },
+  "driver": {
+    "name": "Default",
+    "event": "Endurance"
+  },
+  "colors": {
+    "bg": [
+      10,
+      10,
+      15
+    ],
+    "panel": [
+      22,
+      22,
+      28
+    ],
+    "panel_border": [
+      40,
+      40,
+      50
+    ],
+    "text": [
+      220,
+      220,
+      220
+    ],
+    "text_dim": [
+      100,
+      100,
+      110
+    ],
+    "text_label": [
+      70,
+      75,
+      85
+    ],
+    "rpm_green": [
+      0,
+      220,
+      60
+    ],
+    "rpm_yellow": [
+      255,
+      210,
+      0
+    ],
+    "rpm_orange": [
+      255,
+      140,
+      0
+    ],
+    "rpm_red": [
+      255,
+      30,
+      30
+    ],
+    "shift_off": [
+      30,
+      30,
+      35
+    ],
+    "gear_yellow": [
+      255,
+      230,
+      0
+    ],
+    "speed_white": [
+      255,
+      255,
+      255
+    ],
+    "clt_blue": [
+      80,
+      180,
+      255
+    ],
+    "throttle_green": [
+      0,
+      200,
+      80
+    ],
+    "brake_red": [
+      220,
+      30,
+      30
+    ],
+    "best_green": [
+      0,
+      220,
+      80
+    ],
+    "bar_bg": [
+      35,
+      35,
+      42
+    ],
+    "warning_red": [
+      255,
+      40,
+      40
+    ],
+    "warning_bg": [
+      80,
+      0,
+      0
+    ],
+    "accent": [
+      0,
+      160,
+      255
+    ]
+  }
+}

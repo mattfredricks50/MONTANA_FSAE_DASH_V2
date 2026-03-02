@@ -61,8 +61,13 @@ class SignalBuffer:
             return list(self.history[key])
 
 
-class CANThread(threading.Thread):
-    """Thread for reading CAN bus data"""
+class UARTThread(threading.Thread):
+    """Thread for reading data from STM32 over UART
+    
+    The STM32 sends all sensor data (from its own CAN/analog/GPS)
+    over UART using the RealDash 66 protocol. All values arrive
+    in imperial units (°F, mph, psi).
+    """
     
     def __init__(self, signal_buffer, simulate=True):
         super().__init__(daemon=True)
@@ -71,21 +76,20 @@ class CANThread(threading.Thread):
         self.stop_event = threading.Event()
         
     def run(self):
-        print("CAN thread started")
+        print("UART thread started")
         
         if self.simulate:
-            self._simulate_can()
+            self._simulate_data()
         else:
-            self._read_can()
+            self._read_uart()
     
-    def _simulate_can(self):
-        """Simulate CAN data for testing"""
+    def _simulate_data(self):
+        """Simulate UART data for testing"""
         rpm = 1000
         speed = 0
-        rpm_direction = 40  # Even slower RPM change
+        rpm_direction = 40
         
         while not self.stop_event.is_set():
-            # Simulate realistic RPM and speed (up to 13500 RPM)
             rpm += rpm_direction
             if rpm >= 13500:
                 rpm = 13500
@@ -94,19 +98,16 @@ class CANThread(threading.Thread):
                 rpm = 1000
                 rpm_direction = 40
             
-            speed = int(rpm / 100)  # Simple speed correlation
+            speed = int(rpm / 100)  # Simple speed correlation (mph)
             
-            # Calculate throttle and brake based on RPM direction
             if rpm_direction > 0:
-                # Accelerating - high throttle, no brake
-                throttle = min(100, int((rpm - 1000) / 125))  # 0-100% as RPM increases
+                throttle = min(100, int((rpm - 1000) / 125))
                 brake = 0
             else:
-                # Decelerating - no throttle, high brake
                 throttle = 0
-                brake = min(100, int((13500 - rpm) / 125))  # 0-100% as RPM decreases
+                brake = min(100, int((13500 - rpm) / 125))
             
-            # Update buffer with CAN data
+            # All values in imperial (°F, mph, psi)
             self.buffer.update_multiple({
                 'rpm': rpm,
                 'speed': speed,
@@ -116,12 +117,16 @@ class CANThread(threading.Thread):
                 'brake': brake
             })
             
-            # Use wait instead of sleep - allows quick interruption
             self.stop_event.wait(0.01)
     
-    def _read_can(self):
-        """Real CAN bus reading (to be implemented)"""
-        # TODO: Implement with python-can library
+    def _read_uart(self):
+        """Real UART reading from STM32 (RealDash 66 protocol)
+        
+        TODO: Implement with pyserial
+          - Open config['data']['uart_port'] at config['data']['uart_baud']
+          - Parse RealDash 66 frames
+          - Update signal buffer with decoded values
+        """
         pass
     
     def stop(self):
@@ -161,6 +166,10 @@ class SensorThread(threading.Thread):
         self.stop_event.set()
 
 
+# Backward compatibility alias
+CANThread = UARTThread
+
+
 # Test the system
 if __name__ == "__main__":
     print("Starting Race Dash Data Acquisition Test\n")
@@ -169,19 +178,19 @@ if __name__ == "__main__":
     buffer = SignalBuffer()
     
     # Start acquisition threads
-    can_thread = CANThread(buffer, simulate=True)
+    uart_thread = UARTThread(buffer, simulate=True)
     sensor_thread = SensorThread(buffer, simulate=True)
     
-    can_thread.start()
+    uart_thread.start()
     sensor_thread.start()
     
-    # Monitor data for 10 seconds
+    # Monitor data for 5 seconds
     try:
-        for i in range(50):  # 5 seconds at 10Hz display rate
+        for i in range(50):
             data = buffer.get_all()
             print(f"\rRPM: {data['rpm']:5d} | Speed: {data['speed']:3d} mph | "
                   f"Throttle: {data['throttle']:3d}% | Brake: {data['brake']:3d}% | "
-                  f"Temp: {data['coolant_temp']:3d}°F | Oil: {data['oil_pressure']:2d} psi",
+                  f"Temp: {data['coolant_temp']:3d}F | Oil: {data['oil_pressure']:2d} psi",
                   end='', flush=True)
             time.sleep(0.1)
     
@@ -189,7 +198,7 @@ if __name__ == "__main__":
         print("\n\nStopping...")
     
     # Stop threads
-    can_thread.stop()
+    uart_thread.stop()
     sensor_thread.stop()
     
     print("\n\nTest complete!")
