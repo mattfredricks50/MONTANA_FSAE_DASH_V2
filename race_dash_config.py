@@ -77,6 +77,14 @@ DEFAULT_CONFIG = {
         'event': 'Endurance',
     },
 
+    # ── Enabled Screens ──────────────────────────────────────
+    # List of screen IDs to show in swipe rotation.
+    # Available: lap_timer, main_gauge, drag, strip, gps, diagnostics, warnings
+    # Settings screen is always available (not listed here).
+    'screens': {
+        'enabled': ['lap_timer', 'main_gauge', 'diagnostics'],
+    },
+
     # ── Colors (RGB tuples) ──────────────────────────────────
     'colors': {
         'bg':              [10,  10,  15],

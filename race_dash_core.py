@@ -21,6 +21,10 @@ class SignalBuffer:
             'brake': 0,
             'coolant_temp': 0,
             'oil_pressure': 0,
+            'lat': 0.0,
+            'lon': 0.0,
+            'gps_speed': 0.0,
+            'gps_satellites': 0,
             'timestamp': 0
         }
         # Optional: store history for each signal
@@ -62,31 +66,122 @@ class SignalBuffer:
 
 
 class UARTThread(threading.Thread):
-    """Thread for reading data from STM32 over UART
+    """Thread for reading CSV data from STM32 over UART
     
-    The STM32 sends all sensor data (from its own CAN/analog/GPS)
-    over UART using the RealDash 66 protocol. All values arrive
-    in imperial units (°F, mph, psi).
+    The STM32 handles all sensor reading (CAN, analog, GPS) and sends
+    a simplified CSV line to the Pi at ~25Hz for display.
+    
+    CSV format from STM32:
+      RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPD,GPS_SATS
+    
+    Lines starting with '#' are comments/status messages from STM32.
+    All values arrive in imperial (°F, mph, psi).
     """
     
-    def __init__(self, signal_buffer, simulate=True):
+    # CSV field order (must match STM32 send_to_pi())
+    CSV_FIELDS = [
+        'rpm', 'speed', 'throttle', 'brake',
+        'coolant_temp', 'oil_pressure',
+        'lat', 'lon', 'gps_speed', 'gps_satellites'
+    ]
+    # Which fields are integers (rest are float)
+    INT_FIELDS = {'rpm', 'speed', 'throttle', 'brake',
+                  'coolant_temp', 'oil_pressure', 'gps_satellites'}
+    
+    def __init__(self, signal_buffer, simulate=True,
+                 port='/dev/ttyAMA0', baud=115200):
         super().__init__(daemon=True)
         self.buffer = signal_buffer
         self.simulate = simulate
+        self.port = port
+        self.baud = baud
         self.stop_event = threading.Event()
+        self.parse_errors = 0
+        self.lines_parsed = 0
         
     def run(self):
-        print("UART thread started")
-        
         if self.simulate:
+            print("UART thread started (SIMULATION)")
             self._simulate_data()
         else:
+            print(f"UART thread started ({self.port} @ {self.baud})")
             self._read_uart()
     
+    def _parse_csv_line(self, line):
+        """Parse one CSV line from STM32 into signal buffer updates.
+        Returns True on success, False on parse error."""
+        line = line.strip()
+        
+        # Skip comments and empty lines
+        if not line or line.startswith('#'):
+            return True
+        
+        parts = line.split(',')
+        if len(parts) < 6:
+            # Need at least RPM through oil_pressure
+            self.parse_errors += 1
+            return False
+        
+        try:
+            update = {}
+            for i, field in enumerate(self.CSV_FIELDS):
+                if i >= len(parts):
+                    break
+                val = parts[i].strip()
+                if not val:
+                    continue
+                if field in self.INT_FIELDS:
+                    update[field] = int(float(val))
+                else:
+                    update[field] = float(val)
+            
+            self.buffer.update_multiple(update)
+            self.lines_parsed += 1
+            return True
+        
+        except (ValueError, IndexError):
+            self.parse_errors += 1
+            return False
+    
+    def _read_uart(self):
+        """Read CSV lines from STM32 over UART using pyserial"""
+        try:
+            import serial
+        except ImportError:
+            print("ERROR: pyserial not installed. Run: pip install pyserial")
+            print("Falling back to simulation mode")
+            self._simulate_data()
+            return
+        
+        while not self.stop_event.is_set():
+            try:
+                ser = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baud,
+                    timeout=1.0,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE
+                )
+                print(f"UART connected: {self.port}")
+                
+                while not self.stop_event.is_set():
+                    line = ser.readline().decode('ascii', errors='ignore')
+                    if line:
+                        self._parse_csv_line(line)
+                
+                ser.close()
+            
+            except serial.SerialException as e:
+                print(f"UART error: {e}, retrying in 2s...")
+                self.stop_event.wait(2.0)
+            except Exception as e:
+                print(f"UART unexpected error: {e}")
+                self.stop_event.wait(2.0)
+    
     def _simulate_data(self):
-        """Simulate UART data for testing"""
+        """Simulate STM32 CSV data for PC testing"""
         rpm = 1000
-        speed = 0
         rpm_direction = 40
         
         while not self.stop_event.is_set():
@@ -98,7 +193,7 @@ class UARTThread(threading.Thread):
                 rpm = 1000
                 rpm_direction = 40
             
-            speed = int(rpm / 100)  # Simple speed correlation (mph)
+            speed = int(rpm / 100)
             
             if rpm_direction > 0:
                 throttle = min(100, int((rpm - 1000) / 125))
@@ -107,34 +202,25 @@ class UARTThread(threading.Thread):
                 throttle = 0
                 brake = min(100, int((13500 - rpm) / 125))
             
-            # All values in imperial (°F, mph, psi)
-            self.buffer.update_multiple({
-                'rpm': rpm,
-                'speed': speed,
-                'coolant_temp': random.randint(180, 210),
-                'oil_pressure': random.randint(40, 65),
-                'throttle': throttle,
-                'brake': brake
-            })
+            # Build a CSV line exactly like the STM32 would send
+            csv_line = (f"{rpm},{speed},{throttle},{brake},"
+                       f"{random.randint(180, 210)},{random.randint(40, 65)},"
+                       f"40.712800,-74.006000,{speed * 0.95:.1f},8")
             
-            self.stop_event.wait(0.01)
-    
-    def _read_uart(self):
-        """Real UART reading from STM32 (RealDash 66 protocol)
-        
-        TODO: Implement with pyserial
-          - Open config['data']['uart_port'] at config['data']['uart_baud']
-          - Parse RealDash 66 frames
-          - Update signal buffer with decoded values
-        """
-        pass
+            self._parse_csv_line(csv_line)
+            self.stop_event.wait(0.04)  # 25Hz like real STM32
     
     def stop(self):
         self.stop_event.set()
 
 
 class SensorThread(threading.Thread):
-    """Thread for reading analog sensors (throttle, brake, etc.)"""
+    """Placeholder - all sensors handled by STM32 now.
+    
+    Kept for backward compatibility. Does nothing in real mode.
+    Could be repurposed for Pi-side sensors if ever needed
+    (e.g. a USB accelerometer or Pi camera).
+    """
     
     def __init__(self, signal_buffer, simulate=True):
         super().__init__(daemon=True)
@@ -143,24 +229,9 @@ class SensorThread(threading.Thread):
         self.stop_event = threading.Event()
     
     def run(self):
-        print("Sensor thread started")
-        
-        if self.simulate:
-            self._simulate_sensors()
-        else:
-            self._read_sensors()
-    
-    def _simulate_sensors(self):
-        """Simulate sensor data for testing"""
-        # Throttle and brake now simulated in CAN thread
-        # This can be used for other analog sensors if needed
+        # Nothing to do — STM32 sends everything over UART
         while not self.stop_event.is_set():
-            self.stop_event.wait(0.02)  # 50Hz sensor update rate
-    
-    def _read_sensors(self):
-        """Real sensor reading (to be implemented)"""
-        # TODO: Implement with ADS1115 or serial from Arduino
-        pass
+            self.stop_event.wait(1.0)
     
     def stop(self):
         self.stop_event.set()
@@ -174,32 +245,51 @@ CANThread = UARTThread
 if __name__ == "__main__":
     print("Starting Race Dash Data Acquisition Test\n")
     
-    # Create shared signal buffer
+    # Test CSV parsing directly
+    print("=== CSV Parser Test ===")
+    buf = SignalBuffer()
+    t = UARTThread(buf, simulate=True)
+    
+    # Test valid line
+    assert t._parse_csv_line("8500,85,75,0,195,52,40.712800,-74.006000,80.5,8")
+    data = buf.get_all()
+    assert data['rpm'] == 8500
+    assert data['speed'] == 85
+    assert data['coolant_temp'] == 195
+    print(f"  Valid CSV:    OK  (RPM={data['rpm']}, Speed={data['speed']}, CLT={data['coolant_temp']}F)")
+    
+    # Test minimal line (just 6 fields)
+    assert t._parse_csv_line("9000,90,80,0,200,55")
+    data = buf.get_all()
+    assert data['rpm'] == 9000
+    print(f"  Minimal CSV:  OK  (RPM={data['rpm']})")
+    
+    # Test comment line
+    assert t._parse_csv_line("# Race Dash STM32 starting...")
+    print(f"  Comment skip: OK")
+    
+    # Test bad line
+    assert not t._parse_csv_line("garbage")
+    print(f"  Bad line:     OK  (rejected, errors={t.parse_errors})")
+    
+    print("\n=== Live Simulation Test (5s) ===")
     buffer = SignalBuffer()
-    
-    # Start acquisition threads
     uart_thread = UARTThread(buffer, simulate=True)
-    sensor_thread = SensorThread(buffer, simulate=True)
-    
     uart_thread.start()
-    sensor_thread.start()
     
-    # Monitor data for 5 seconds
     try:
         for i in range(50):
             data = buffer.get_all()
             print(f"\rRPM: {data['rpm']:5d} | Speed: {data['speed']:3d} mph | "
                   f"Throttle: {data['throttle']:3d}% | Brake: {data['brake']:3d}% | "
-                  f"Temp: {data['coolant_temp']:3d}F | Oil: {data['oil_pressure']:2d} psi",
+                  f"CLT: {data['coolant_temp']:3d}F | Oil: {data['oil_pressure']:2d} psi | "
+                  f"Lines: {uart_thread.lines_parsed}",
                   end='', flush=True)
             time.sleep(0.1)
-    
     except KeyboardInterrupt:
         print("\n\nStopping...")
     
-    # Stop threads
     uart_thread.stop()
-    sensor_thread.stop()
-    
-    print("\n\nTest complete!")
-    print(f"Final values: {buffer.get_all()}")
+    print(f"\n\nTest complete! Lines parsed: {uart_thread.lines_parsed}, "
+          f"Parse errors: {uart_thread.parse_errors}")
+    print(f"Final: {buffer.get_all()}")

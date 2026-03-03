@@ -40,8 +40,18 @@
     "uart_baud": 115200
   },
   "driver": {
-    "name": "Default",
-    "event": "Endurance"
+    "name": "Driver 2",
+    "event": "Practice"
+  },
+  "screens": {
+    "enabled": [
+      "lap_timer",
+      "main_gauge",
+      "gps",
+      "c4_corvette",
+      "classic",
+      "warnings"
+    ]
   },
   "colors": {
     "bg": [
