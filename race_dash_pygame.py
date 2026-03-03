@@ -105,12 +105,18 @@ def lerp_color(c1, c2, t):
     )
 
 
-def calculate_gear(speed):
-    gear_speeds = config.get('engine', 'gear_speeds')
-    for i, threshold in enumerate(gear_speeds):
-        if speed < threshold:
-            return i + 1
-    return len(gear_speeds)
+def get_gear(data):
+    """Get gear from STM32 data. Returns int 0-6 (0 = neutral/unknown)."""
+    return data.get('gear', 0)
+
+
+def get_gear_display(data):
+    """Get gear display string. 'N' if clutch in or gear=0, else '1'-'6'."""
+    clutch = data.get('clutch', 0)
+    gear = data.get('gear', 0)
+    if clutch or gear == 0:
+        return 'N'
+    return str(gear)
 
 
 # ============================================================
@@ -257,7 +263,7 @@ class LapTimerScreen:
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
         rpm, speed = data['rpm'], data['speed']
-        gear = calculate_gear(speed)
+        gear = get_gear_display(data)
 
         surface.fill(config.color('bg'))
 
@@ -362,7 +368,7 @@ class MainDashScreen:
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
         rpm, speed = data['rpm'], data['speed']
-        gear = calculate_gear(speed)
+        gear = get_gear_display(data)
 
         surface.fill(config.color('bg'))
 
@@ -419,7 +425,7 @@ class DragScreen:
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
         rpm, speed = data['rpm'], data['speed']
-        gear = calculate_gear(speed)
+        gear = get_gear_display(data)
 
         surface.fill(config.color('bg'))
 
@@ -460,7 +466,7 @@ class DriverStripScreen:
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
         rpm, speed = data['rpm'], data['speed']
-        gear = calculate_gear(speed)
+        gear = get_gear_display(data)
 
         surface.fill(config.color('bg'))
         draw_shift_lights(surface, 8, 4, W - 16, 32, rpm, flash_state)
@@ -837,7 +843,7 @@ class C4CorvetteScreen:
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
         rpm, speed = data['rpm'], data['speed']
-        gear = calculate_gear(speed)
+        gear = get_gear_display(data)
         temp = data['coolant_temp']
         oil = data['oil_pressure']
         e = config['engine']

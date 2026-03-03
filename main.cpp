@@ -49,7 +49,7 @@
  *                           → nRF24 to pit (10-20Hz telemetry)
  * 
  * CSV FORMAT (UART to Pi):
- *   RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPEED_MPH,GPS_SATS,ACCEL_X,ACCEL_Y,ACCEL_Z\n
+ *   RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPEED_MPH,GPS_SATS,ACCEL_X,ACCEL_Y,ACCEL_Z,GEAR,CLUTCH\n
  * 
  * SD LOG FORMAT:
  *   TIMESTAMP_MS,RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,AFR,VOLTAGE,
@@ -93,6 +93,9 @@
 // I2C1 - MPU-6050 IMU (PB6=SCL, PB7=SDA)
 #define MPU6050_ADDR    0x68    // AD0 pin to GND
 
+// Clutch switch (digital input)
+#define CLUTCH_PIN      PB8     // Pull LOW = clutch engaged (closed switch to GND)
+
 // ============================================================
 // CONFIGURATION
 // ============================================================
@@ -100,6 +103,27 @@
 #define PI_BAUD             115200
 #define GPS_BAUD            9600
 #define CAN_BITRATE         500000
+
+// ── CBR 600RR Drivetrain Config ──
+// Gear ratios from Honda service manual (2003-2006 CBR600RR)
+// Adjust if you have a different year or aftermarket gears.
+#define NUM_GEARS           6
+const float GEAR_RATIOS[NUM_GEARS] = {
+    2.666f,   // 1st (32/12)
+    1.937f,   // 2nd (31/16)
+    1.661f,   // 3rd (29/18)
+    1.409f,   // 4th (31/22)
+    1.260f,   // 5th (29/23)
+    1.166f    // 6th (28/24)
+};
+const float PRIMARY_RATIO  = 2.111f;   // 76/36
+// Final drive: adjust to your sprocket setup (stock US = 16/43)
+const float FINAL_RATIO    = 2.6875f;  // 43/16 (stock US 03-06)
+// Rear tire circumference in meters (180/55-17 ≈ 2.02m)
+const float TIRE_CIRC_M    = 2.02f;
+// Gear detection tolerance: how close (as a ratio) actual RPM must
+// be to the predicted RPM for a gear to match. 0.08 = within 8%.
+const float GEAR_MATCH_TOL = 0.08f;
 
 // Timing intervals (milliseconds)
 #define SD_LOG_INTERVAL_MS  10      // 100Hz full-rate logging
@@ -136,6 +160,8 @@ struct SensorData {
 
     // Calculated
     uint16_t speed_mph;
+    uint8_t  gear;              // 0 = neutral/unknown, 1-6 = gear
+    bool     clutch_in;         // true = clutch lever pulled (disengaged)
 
     // GPS
     double   lat;
@@ -180,8 +206,11 @@ uint32_t last_sim_update = 0;
 uint32_t last_led_toggle = 0;
 
 // Simulation state
-int16_t sim_rpm = 1000;
+int16_t sim_rpm = 3000;
 int8_t  sim_rpm_dir = 1;
+uint8_t sim_gear = 0;         // 0-indexed: 0=1st, 5=6th
+bool    sim_accel = true;     // true = accelerating up through gears
+uint8_t sim_clutch_ticks = 0; // countdown for clutch engagement
 
 // ============================================================
 // FORWARD DECLARATIONS
@@ -214,6 +243,9 @@ void setup() {
     delay(10);  // Let pullup settle
     sim_mode = (digitalRead(SIM_MODE_PIN) == LOW);
 
+    // Clutch switch - internal pullup, switch pulls LOW when clutch is in
+    pinMode(CLUTCH_PIN, INPUT_PULLUP);
+
     // UART to Pi
     PI_SERIAL.begin(PI_BAUD);
     PI_SERIAL.println("# Race Dash STM32 starting...");
@@ -243,7 +275,7 @@ void setup() {
     init_imu();
 
     // Send CSV header so Pi knows the format
-    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ");
+    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH");
 
     digitalWrite(LED_PIN, HIGH);    // LED off - setup complete
     PI_SERIAL.println("# Ready");
@@ -266,6 +298,8 @@ void loop() {
         read_can();                 // Non-blocking CAN poll
         read_analog();              // Fast ADC reads
         read_imu();                 // Accelerometer (I2C, ~0.5ms)
+        read_clutch();              // Clutch switch (digital, instant)
+        calculate_gear();           // Gear from RPM + wheel speed
 
         if (now - last_gps_parse >= GPS_PARSE_INTERVAL_MS) {
             last_gps_parse = now;
@@ -312,21 +346,67 @@ void loop() {
 // ============================================================
 
 void update_sim_data() {
-    // Sweep RPM 1000-13500
-    sim_rpm += 40 * sim_rpm_dir;
-    if (sim_rpm >= 13500) { sim_rpm = 13500; sim_rpm_dir = -1; }
-    if (sim_rpm <= 1000)  { sim_rpm = 1000;  sim_rpm_dir = 1;  }
+    uint32_t now = millis();
 
+    // ── Shift logic: cycle through all 6 gears ──
+    if (sim_clutch_ticks > 0) {
+        // Mid-shift: clutch in, RPM drops
+        sim_clutch_ticks--;
+        sim_rpm = max((int16_t)2000, (int16_t)(sim_rpm - 200));
+        current_data.clutch_in = true;
+        current_data.gear = 0;
+    } else if (sim_accel) {
+        // Rev up in current gear
+        sim_rpm += random(5, 9);  // ~50-90 per 100Hz tick
+        current_data.clutch_in = false;
+        current_data.gear = sim_gear + 1;
+
+        if (sim_rpm >= 12500) {
+            if (sim_gear < 5) {
+                sim_clutch_ticks = 4;   // ~40ms clutch pull
+                sim_gear++;
+            } else {
+                sim_accel = false;      // top gear, start decel
+            }
+        }
+    } else {
+        // Engine braking back down
+        sim_rpm -= random(4, 7);
+        current_data.clutch_in = false;
+        current_data.gear = sim_gear + 1;
+
+        if (sim_rpm <= 4000) {
+            if (sim_gear > 0) {
+                sim_clutch_ticks = 3;
+                sim_gear--;
+                sim_rpm = 8000;         // RPM jumps on downshift
+            } else {
+                sim_accel = true;       // back in 1st, start over
+                sim_rpm = 3000;
+            }
+        }
+    }
+
+    // Clamp
+    sim_rpm = constrain(sim_rpm, 2000, 14000);
     current_data.rpm = sim_rpm;
-    current_data.speed_mph = sim_rpm / 100;
 
-    // Throttle/brake correlated with RPM direction
-    if (sim_rpm_dir > 0) {
-        current_data.throttle_pct = min(100, (int)(sim_rpm - 1000) / 125);
+    // Speed from RPM + gear (real physics)
+    float overall = GEAR_RATIOS[sim_gear] * PRIMARY_RATIO * FINAL_RATIO;
+    float wheel_rps = (sim_rpm / 60.0f) / overall;
+    float speed_ms = wheel_rps * TIRE_CIRC_M;
+    current_data.speed_mph = max(0, (int)(speed_ms / 0.44704f));
+
+    // Throttle/brake
+    if (current_data.clutch_in) {
+        current_data.throttle_pct = 0;
+        current_data.brake_pct = 0;
+    } else if (sim_accel) {
+        current_data.throttle_pct = min(100, (int)(60 + (sim_rpm - 3000) / 20));
         current_data.brake_pct = 0;
     } else {
         current_data.throttle_pct = 0;
-        current_data.brake_pct = min(100, (int)(13500 - sim_rpm) / 125);
+        current_data.brake_pct = min(100, (int)(30 + (8000 - sim_rpm) / 15));
     }
 
     // Realistic-ish sensor values
@@ -335,7 +415,7 @@ void update_sim_data() {
     current_data.afr_x10 = 140 + random(0, 15);
     current_data.battery_voltage = 13.2 + random(0, 10) / 10.0;
 
-    // Fake GPS position (stationary for sim)
+    // Fake GPS
     current_data.lat = 40.7128;
     current_data.lon = -74.0060;
     current_data.gps_speed_mph = current_data.speed_mph * 0.95;
@@ -343,11 +423,11 @@ void update_sim_data() {
     current_data.gps_satellites = 8;
     current_data.gps_fix = true;
 
-    // Fake IMU: lateral g varies with speed, longitudinal with accel/brake
-    float spd_frac = current_data.speed_mph / 135.0f;
-    current_data.accel_x_g = sin(now / 2000.0f) * spd_frac * 1.5f;  // lateral sway
-    current_data.accel_y_g = (sim_rpm_dir > 0) ? 0.3f + spd_frac * 0.5f : -0.8f;  // accel/brake
-    current_data.accel_z_g = 1.0f + sin(now / 500.0f) * 0.05f;       // ~1g with vibration
+    // IMU
+    float spd_frac = current_data.speed_mph / 150.0f;
+    current_data.accel_x_g = sin(now / 2000.0f) * spd_frac * 1.5f;
+    current_data.accel_y_g = sim_accel && !current_data.clutch_in ? 0.5f : (!sim_accel && !current_data.clutch_in ? -0.6f : 0.0f);
+    current_data.accel_z_g = 1.0f + sin(now / 500.0f) * 0.05f;
 }
 
 // ============================================================
@@ -528,6 +608,65 @@ void read_analog() {
 }
 
 // ============================================================
+// CLUTCH & GEAR DETECTION
+// ============================================================
+
+void read_clutch() {
+    // Clutch switch: closed (LOW) = clutch lever pulled = disengaged
+    current_data.clutch_in = (digitalRead(CLUTCH_PIN) == LOW);
+}
+
+void calculate_gear() {
+    // Calculate gear from RPM and wheel speed using known drivetrain ratios.
+    //
+    // Theory: wheel_rps = speed_mph * 0.44704 / tire_circ_m
+    //         For each gear g: expected_rpm = wheel_rps * final * primary * gear_ratio[g] * 60
+    //         Pick the gear whose expected RPM is closest to actual RPM.
+    //
+    // Edge cases:
+    //   - Clutch pulled in → show 0 (neutral/disengaged)
+    //   - Speed too low (<5 mph) → unreliable, show 0
+    //   - RPM too low (<1500) → engine likely idle, show 0
+    //   - No gear matches within tolerance → show 0
+
+    // If clutch is in, we can't determine gear (could be between gears)
+    if (current_data.clutch_in) {
+        current_data.gear = 0;
+        return;
+    }
+
+    uint16_t rpm = current_data.rpm;
+    uint16_t speed = current_data.speed_mph;
+
+    // Need minimum RPM and speed for reliable detection
+    if (rpm < 1500 || speed < 5) {
+        current_data.gear = 0;
+        return;
+    }
+
+    // Convert speed to wheel revolutions per second
+    float speed_ms = speed * 0.44704f;             // mph to m/s
+    float wheel_rps = speed_ms / TIRE_CIRC_M;      // wheel revs per second
+
+    // For each gear, calculate what RPM we'd expect
+    float best_error = 999999.0f;
+    uint8_t best_gear = 0;
+
+    for (uint8_t g = 0; g < NUM_GEARS; g++) {
+        float expected_rpm = wheel_rps * FINAL_RATIO * PRIMARY_RATIO * GEAR_RATIOS[g] * 60.0f;
+        float error = abs((float)rpm - expected_rpm);
+        float error_pct = error / expected_rpm;
+
+        if (error_pct < GEAR_MATCH_TOL && error < best_error) {
+            best_error = error;
+            best_gear = g + 1;  // 1-indexed
+        }
+    }
+
+    current_data.gear = best_gear;
+}
+
+// ============================================================
 // SD CARD LOGGING
 // ============================================================
 
@@ -566,7 +705,7 @@ void create_new_logfile() {
     log_file.println("TIME_MS,RPM,SPEED_MPH,THROTTLE,BRAKE,"
                      "CLT_F,OIL_PSI,AFR_X10,VOLTS,"
                      "LAT,LON,GPS_SPD_MPH,GPS_ALT_FT,GPS_SATS,GPS_FIX,"
-                     "AN0,AN1,ACCEL_X,ACCEL_Y,ACCEL_Z");
+                     "AN0,AN1,ACCEL_X,ACCEL_Y,ACCEL_Z,GEAR,CLUTCH");
     log_file.flush();
 
     PI_SERIAL.print("# Logging to: ");
@@ -598,7 +737,9 @@ void log_to_sd() {
     log_file.print(d->analog_1_raw);     log_file.print(',');
     log_file.print(d->accel_x_g, 3);    log_file.print(',');
     log_file.print(d->accel_y_g, 3);    log_file.print(',');
-    log_file.println(d->accel_z_g, 3);
+    log_file.print(d->accel_z_g, 3);    log_file.print(',');
+    log_file.print(d->gear);            log_file.print(',');
+    log_file.println(d->clutch_in ? 1 : 0);
 }
 
 // ============================================================
@@ -609,7 +750,7 @@ void send_to_pi() {
     SensorData *d = &current_data;
 
     // Lighter CSV for display — Pi only needs these for the dash
-    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ
+    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH
     PI_SERIAL.print(d->rpm);             PI_SERIAL.print(',');
     PI_SERIAL.print(d->speed_mph);       PI_SERIAL.print(',');
     PI_SERIAL.print(d->throttle_pct);    PI_SERIAL.print(',');
@@ -622,7 +763,9 @@ void send_to_pi() {
     PI_SERIAL.print(d->gps_satellites);  PI_SERIAL.print(',');
     PI_SERIAL.print(d->accel_x_g, 2);   PI_SERIAL.print(',');
     PI_SERIAL.print(d->accel_y_g, 2);   PI_SERIAL.print(',');
-    PI_SERIAL.println(d->accel_z_g, 2);
+    PI_SERIAL.print(d->accel_z_g, 2);   PI_SERIAL.print(',');
+    PI_SERIAL.print(d->gear);           PI_SERIAL.print(',');
+    PI_SERIAL.println(d->clutch_in ? 1 : 0);
 }
 
 // ============================================================

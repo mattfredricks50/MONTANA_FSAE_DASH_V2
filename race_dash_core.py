@@ -28,6 +28,8 @@ class SignalBuffer:
             'accel_x': 0.0,
             'accel_y': 0.0,
             'accel_z': 0.0,
+            'gear': 0,
+            'clutch': 0,
             'timestamp': 0
         }
         # Optional: store history for each signal
@@ -75,7 +77,7 @@ class UARTThread(threading.Thread):
     a simplified CSV line to the Pi at ~25Hz for display.
     
     CSV format from STM32:
-      RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ
+      RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH
     
     Lines starting with '#' are comments/status messages from STM32.
     All values arrive in imperial (°F, mph, psi).
@@ -86,11 +88,13 @@ class UARTThread(threading.Thread):
         'rpm', 'speed', 'throttle', 'brake',
         'coolant_temp', 'oil_pressure',
         'lat', 'lon', 'gps_speed', 'gps_satellites',
-        'accel_x', 'accel_y', 'accel_z'
+        'accel_x', 'accel_y', 'accel_z',
+        'gear', 'clutch'
     ]
     # Which fields are integers (rest are float)
     INT_FIELDS = {'rpm', 'speed', 'throttle', 'brake',
-                  'coolant_temp', 'oil_pressure', 'gps_satellites'}
+                  'coolant_temp', 'oil_pressure', 'gps_satellites',
+                  'gear', 'clutch'}
     
     def __init__(self, signal_buffer, simulate=True,
                  port='/dev/ttyAMA0', baud=115200):
@@ -184,42 +188,103 @@ class UARTThread(threading.Thread):
                 self.stop_event.wait(2.0)
     
     def _simulate_data(self):
-        """Simulate STM32 CSV data for PC testing"""
-        rpm = 1000
-        rpm_direction = 40
+        """Simulate STM32 CSV data for PC testing.
+        
+        Simulates actually riding through the gears on a CBR 600RR:
+        Rev up in each gear, clutch in, shift up, RPM drops, repeat.
+        After 6th gear, engine brake back down through the gears.
+        Speed is derived from RPM + gear ratio (like real life).
+        """
+        import math as _m
+        
+        # CBR 600RR drivetrain
+        GEARS = [2.666, 1.937, 1.661, 1.409, 1.260, 1.166]
+        PRI = 2.111
+        FIN = 2.6875
+        TIRE = 2.02
+        SHIFT_RPM = 12500   # shift point
+        IDLE_RPM = 2000
+        
+        cur_gear = 0        # 0-indexed (0=1st, 5=6th)
+        rpm = 3000.0
+        accel = True        # True = accelerating up through gears
+        clutch_timer = 0    # countdown ticks for clutch engagement
         
         while not self.stop_event.is_set():
-            rpm += rpm_direction
-            if rpm >= 13500:
-                rpm = 13500
-                rpm_direction = -40
-            elif rpm <= 1000:
-                rpm = 1000
-                rpm_direction = 40
+            t = time.time()
             
-            speed = int(rpm / 100)
+            # ── Shift logic ──
+            if clutch_timer > 0:
+                # Mid-shift: clutch is in, RPM drops
+                clutch_timer -= 1
+                rpm = max(rpm - 200, IDLE_RPM)
+                clutch = 1
+                gear_display = 0
+            elif accel:
+                # Accelerating: rev up
+                rpm += random.uniform(50, 90)
+                clutch = 0
+                gear_display = cur_gear + 1
+                
+                if rpm >= SHIFT_RPM:
+                    if cur_gear < 5:
+                        # Shift up
+                        clutch_timer = 4  # ~160ms clutch pull
+                        cur_gear += 1
+                    else:
+                        # Top gear, switch to decel
+                        accel = False
+            else:
+                # Decelerating / engine braking back down
+                rpm -= random.uniform(40, 70)
+                clutch = 0
+                gear_display = cur_gear + 1
+                
+                if rpm <= 4000:
+                    if cur_gear > 0:
+                        # Downshift
+                        clutch_timer = 3
+                        cur_gear -= 1
+                        rpm = 8000  # RPM jumps up on downshift (engine braking)
+                    else:
+                        # Back in 1st, start over
+                        accel = True
+                        rpm = 3000
             
-            if rpm_direction > 0:
-                throttle = min(100, int((rpm - 1000) / 125))
+            # Clamp RPM
+            rpm = max(IDLE_RPM, min(14000, rpm))
+            
+            # Calculate speed from RPM and current gear (the real physics)
+            overall_ratio = GEARS[cur_gear] * PRI * FIN
+            wheel_rps = (rpm / 60.0) / overall_ratio
+            speed_ms = wheel_rps * TIRE
+            speed = max(0, int(speed_ms / 0.44704))  # m/s to mph
+            
+            # Throttle/brake
+            if clutch:
+                throttle = 0
+                brake = 0
+            elif accel:
+                throttle = min(100, int(60 + (rpm - 3000) / 200))
                 brake = 0
             else:
                 throttle = 0
-                brake = min(100, int((13500 - rpm) / 125))
+                brake = min(100, int(30 + (8000 - rpm) / 150))
             
-            # Build a CSV line exactly like the STM32 would send
-            import math as _m
-            t = time.time()
-            spd_frac = speed / 135.0
-            ax = _m.sin(t / 2.0) * spd_frac * 1.5  # lateral
-            ay = 0.4 if rpm_direction > 0 else -0.8   # longitudinal
-            az = 1.0 + _m.sin(t * 12) * 0.03          # vertical + vibration
-            csv_line = (f"{rpm},{speed},{throttle},{brake},"
+            # IMU
+            spd_frac = speed / 150.0
+            ax = _m.sin(t / 2.0) * spd_frac * 1.5
+            ay = 0.5 if accel and not clutch else (-0.6 if not accel and not clutch else 0.0)
+            az = 1.0 + _m.sin(t * 12) * 0.03
+            
+            csv_line = (f"{int(rpm)},{speed},{throttle},{brake},"
                        f"{random.randint(180, 210)},{random.randint(40, 65)},"
                        f"40.712800,-74.006000,{speed * 0.95:.1f},8,"
-                       f"{ax:.2f},{ay:.2f},{az:.2f}")
+                       f"{ax:.2f},{ay:.2f},{az:.2f},"
+                       f"{gear_display},{clutch}")
             
             self._parse_csv_line(csv_line)
-            self.stop_event.wait(0.04)  # 25Hz like real STM32
+            self.stop_event.wait(0.04)  # 25Hz
     
     def stop(self):
         self.stop_event.set()

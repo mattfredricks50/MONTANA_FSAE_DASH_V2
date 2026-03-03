@@ -35,7 +35,7 @@
     "pressure": "psi"
   },
   "data": {
-    "simulate": false,
+    "simulate": true,
     "uart_port": "/dev/ttyAMA0",
     "uart_baud": 115200
   },
