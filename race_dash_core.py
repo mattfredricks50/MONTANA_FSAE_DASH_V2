@@ -25,6 +25,9 @@ class SignalBuffer:
             'lon': 0.0,
             'gps_speed': 0.0,
             'gps_satellites': 0,
+            'accel_x': 0.0,
+            'accel_y': 0.0,
+            'accel_z': 0.0,
             'timestamp': 0
         }
         # Optional: store history for each signal
@@ -72,7 +75,7 @@ class UARTThread(threading.Thread):
     a simplified CSV line to the Pi at ~25Hz for display.
     
     CSV format from STM32:
-      RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPD,GPS_SATS
+      RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ
     
     Lines starting with '#' are comments/status messages from STM32.
     All values arrive in imperial (°F, mph, psi).
@@ -82,7 +85,8 @@ class UARTThread(threading.Thread):
     CSV_FIELDS = [
         'rpm', 'speed', 'throttle', 'brake',
         'coolant_temp', 'oil_pressure',
-        'lat', 'lon', 'gps_speed', 'gps_satellites'
+        'lat', 'lon', 'gps_speed', 'gps_satellites',
+        'accel_x', 'accel_y', 'accel_z'
     ]
     # Which fields are integers (rest are float)
     INT_FIELDS = {'rpm', 'speed', 'throttle', 'brake',
@@ -203,9 +207,16 @@ class UARTThread(threading.Thread):
                 brake = min(100, int((13500 - rpm) / 125))
             
             # Build a CSV line exactly like the STM32 would send
+            import math as _m
+            t = time.time()
+            spd_frac = speed / 135.0
+            ax = _m.sin(t / 2.0) * spd_frac * 1.5  # lateral
+            ay = 0.4 if rpm_direction > 0 else -0.8   # longitudinal
+            az = 1.0 + _m.sin(t * 12) * 0.03          # vertical + vibration
             csv_line = (f"{rpm},{speed},{throttle},{brake},"
                        f"{random.randint(180, 210)},{random.randint(40, 65)},"
-                       f"40.712800,-74.006000,{speed * 0.95:.1f},8")
+                       f"40.712800,-74.006000,{speed * 0.95:.1f},8,"
+                       f"{ax:.2f},{ay:.2f},{az:.2f}")
             
             self._parse_csv_line(csv_line)
             self.stop_event.wait(0.04)  # 25Hz like real STM32
@@ -250,13 +261,14 @@ if __name__ == "__main__":
     buf = SignalBuffer()
     t = UARTThread(buf, simulate=True)
     
-    # Test valid line
-    assert t._parse_csv_line("8500,85,75,0,195,52,40.712800,-74.006000,80.5,8")
+    # Test valid line (with accel data)
+    assert t._parse_csv_line("8500,85,75,0,195,52,40.712800,-74.006000,80.5,8,0.45,-0.30,1.02")
     data = buf.get_all()
     assert data['rpm'] == 8500
     assert data['speed'] == 85
     assert data['coolant_temp'] == 195
-    print(f"  Valid CSV:    OK  (RPM={data['rpm']}, Speed={data['speed']}, CLT={data['coolant_temp']}F)")
+    assert abs(data['accel_x'] - 0.45) < 0.01
+    print(f"  Valid CSV:    OK  (RPM={data['rpm']}, Speed={data['speed']}, CLT={data['coolant_temp']}F, Ax={data['accel_x']:.2f}g)")
     
     # Test minimal line (just 6 fields)
     assert t._parse_csv_line("9000,90,80,0,200,55")

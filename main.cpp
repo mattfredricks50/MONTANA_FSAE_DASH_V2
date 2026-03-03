@@ -26,6 +26,11 @@
  *     PB15 = MOSI
  *     PB12 = CSN
  *     PB1  = CE
+ *
+ *   I2C1 → MPU-6050 (6-axis IMU: 3-axis accel + 3-axis gyro):
+ *     PB6  = SCL
+ *     PB7  = SDA
+ *     AD0 to GND = address 0x68
  * 
  *   Analog Inputs (3.3V max, use voltage dividers for 5V sensors):
  *     PA0  = Analog 0 (spare / brake pressure)
@@ -44,7 +49,7 @@
  *                           → nRF24 to pit (10-20Hz telemetry)
  * 
  * CSV FORMAT (UART to Pi):
- *   RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPEED_MPH,GPS_SATS\n
+ *   RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,LAT,LON,GPS_SPEED_MPH,GPS_SATS,ACCEL_X,ACCEL_Y,ACCEL_Z\n
  * 
  * SD LOG FORMAT:
  *   TIMESTAMP_MS,RPM,SPEED_MPH,THROTTLE_PCT,BRAKE_PCT,CLT_F,OIL_PSI,AFR,VOLTAGE,
@@ -58,6 +63,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <Wire.h>
 #include <SD.h>
 #include <TinyGPSPlus.h>
 
@@ -83,6 +89,9 @@
 // Control
 #define LED_PIN         PC13
 #define SIM_MODE_PIN    PB0     // Pull LOW = simulation mode
+
+// I2C1 - MPU-6050 IMU (PB6=SCL, PB7=SDA)
+#define MPU6050_ADDR    0x68    // AD0 pin to GND
 
 // ============================================================
 // CONFIGURATION
@@ -139,6 +148,11 @@ struct SensorData {
     // Analog
     uint16_t analog_0_raw;      // 12-bit ADC
     uint16_t analog_1_raw;
+
+    // IMU (MPU-6050) — in g-force units
+    float accel_x_g;            // Lateral (positive = right)
+    float accel_y_g;            // Longitudinal (positive = forward/accel)
+    float accel_z_g;            // Vertical (positive = up, ~1.0 at rest)
 
     // Timing
     uint32_t timestamp_ms;
@@ -225,8 +239,11 @@ void setup() {
     // SD card (always init - log sim data too for testing)
     init_sd();
 
+    // IMU (always init - useful even in sim for bench vibration testing)
+    init_imu();
+
     // Send CSV header so Pi knows the format
-    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS");
+    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ");
 
     digitalWrite(LED_PIN, HIGH);    // LED off - setup complete
     PI_SERIAL.println("# Ready");
@@ -248,6 +265,7 @@ void loop() {
     } else {
         read_can();                 // Non-blocking CAN poll
         read_analog();              // Fast ADC reads
+        read_imu();                 // Accelerometer (I2C, ~0.5ms)
 
         if (now - last_gps_parse >= GPS_PARSE_INTERVAL_MS) {
             last_gps_parse = now;
@@ -324,6 +342,12 @@ void update_sim_data() {
     current_data.gps_alt_ft = 33.0;
     current_data.gps_satellites = 8;
     current_data.gps_fix = true;
+
+    // Fake IMU: lateral g varies with speed, longitudinal with accel/brake
+    float spd_frac = current_data.speed_mph / 135.0f;
+    current_data.accel_x_g = sin(now / 2000.0f) * spd_frac * 1.5f;  // lateral sway
+    current_data.accel_y_g = (sim_rpm_dir > 0) ? 0.3f + spd_frac * 0.5f : -0.8f;  // accel/brake
+    current_data.accel_z_g = 1.0f + sin(now / 500.0f) * 0.05f;       // ~1g with vibration
 }
 
 // ============================================================
@@ -414,6 +438,81 @@ void read_gps() {
 }
 
 // ============================================================
+// IMU (MPU-6050)
+// ============================================================
+
+bool imu_ok = false;
+
+void init_imu() {
+    Wire.begin();               // PB6=SCL, PB7=SDA on STM32F103
+    Wire.setClock(400000);      // 400kHz fast I2C
+
+    // Wake up MPU-6050 (default is sleep mode)
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x6B);           // PWR_MGMT_1 register
+    Wire.write(0x00);           // Clear sleep bit
+    Wire.endTransmission(true);
+    delay(10);
+
+    // Set accelerometer to ±4g range (good for FSAE: max ~2-3g)
+    // Register 0x1C: 0x08 = ±4g (sensitivity: 8192 LSB/g)
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x1C);           // ACCEL_CONFIG register
+    Wire.write(0x08);           // ±4g
+    Wire.endTransmission(true);
+
+    // Set low-pass filter to 44Hz (smooths vibration noise)
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x1A);           // CONFIG register
+    Wire.write(0x03);           // DLPF = 44Hz
+    Wire.endTransmission(true);
+
+    // Verify device is responding
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x75);           // WHO_AM_I register
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)MPU6050_ADDR, (uint8_t)1, (uint8_t)true);
+    if (Wire.available()) {
+        uint8_t who = Wire.read();
+        if (who == 0x68 || who == 0x72) {  // MPU6050 or MPU6500
+            imu_ok = true;
+            PI_SERIAL.println("# IMU MPU-6050 OK");
+        } else {
+            PI_SERIAL.print("# IMU unknown ID: 0x");
+            PI_SERIAL.println(who, HEX);
+        }
+    } else {
+        PI_SERIAL.println("# IMU not found on I2C");
+    }
+}
+
+void read_imu() {
+    if (!imu_ok) return;
+
+    // Read 6 bytes of accelerometer data (registers 0x3B-0x40)
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x3B);           // ACCEL_XOUT_H
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)MPU6050_ADDR, (uint8_t)6, (uint8_t)true);
+
+    if (Wire.available() >= 6) {
+        int16_t ax_raw = (Wire.read() << 8) | Wire.read();
+        int16_t ay_raw = (Wire.read() << 8) | Wire.read();
+        int16_t az_raw = (Wire.read() << 8) | Wire.read();
+
+        // Convert to g-force (±4g range = 8192 LSB/g)
+        // Orientation: mount board flat, chip up
+        //   X axis = lateral (positive = right turn)
+        //   Y axis = longitudinal (positive = acceleration)
+        //   Z axis = vertical (positive = up, ~1.0g at rest)
+        // Adjust signs here if your mounting orientation differs!
+        current_data.accel_x_g = ax_raw / 8192.0f;
+        current_data.accel_y_g = ay_raw / 8192.0f;
+        current_data.accel_z_g = az_raw / 8192.0f;
+    }
+}
+
+// ============================================================
 // ANALOG SENSORS
 // ============================================================
 
@@ -467,7 +566,7 @@ void create_new_logfile() {
     log_file.println("TIME_MS,RPM,SPEED_MPH,THROTTLE,BRAKE,"
                      "CLT_F,OIL_PSI,AFR_X10,VOLTS,"
                      "LAT,LON,GPS_SPD_MPH,GPS_ALT_FT,GPS_SATS,GPS_FIX,"
-                     "AN0,AN1");
+                     "AN0,AN1,ACCEL_X,ACCEL_Y,ACCEL_Z");
     log_file.flush();
 
     PI_SERIAL.print("# Logging to: ");
@@ -496,7 +595,10 @@ void log_to_sd() {
     log_file.print(d->gps_satellites);   log_file.print(',');
     log_file.print(d->gps_fix ? 1 : 0); log_file.print(',');
     log_file.print(d->analog_0_raw);     log_file.print(',');
-    log_file.println(d->analog_1_raw);
+    log_file.print(d->analog_1_raw);     log_file.print(',');
+    log_file.print(d->accel_x_g, 3);    log_file.print(',');
+    log_file.print(d->accel_y_g, 3);    log_file.print(',');
+    log_file.println(d->accel_z_g, 3);
 }
 
 // ============================================================
@@ -507,7 +609,7 @@ void send_to_pi() {
     SensorData *d = &current_data;
 
     // Lighter CSV for display — Pi only needs these for the dash
-    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS
+    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ
     PI_SERIAL.print(d->rpm);             PI_SERIAL.print(',');
     PI_SERIAL.print(d->speed_mph);       PI_SERIAL.print(',');
     PI_SERIAL.print(d->throttle_pct);    PI_SERIAL.print(',');
@@ -517,7 +619,10 @@ void send_to_pi() {
     PI_SERIAL.print(d->lat, 6);          PI_SERIAL.print(',');
     PI_SERIAL.print(d->lon, 6);          PI_SERIAL.print(',');
     PI_SERIAL.print(d->gps_speed_mph, 1);PI_SERIAL.print(',');
-    PI_SERIAL.println(d->gps_satellites);
+    PI_SERIAL.print(d->gps_satellites);  PI_SERIAL.print(',');
+    PI_SERIAL.print(d->accel_x_g, 2);   PI_SERIAL.print(',');
+    PI_SERIAL.print(d->accel_y_g, 2);   PI_SERIAL.print(',');
+    PI_SERIAL.println(d->accel_z_g, 2);
 }
 
 // ============================================================

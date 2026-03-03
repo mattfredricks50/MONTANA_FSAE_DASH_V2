@@ -1035,15 +1035,13 @@ class ClassicAnalogScreen:
         self.needle_speed = 0
         self.needle_clt = 180
         self.needle_oil = 40
-        self.needle_throttle = 0
-        self.needle_brake = 0
 
     def _draw_round_gauge(self, surface, fonts, cx, cy, radius,
                           value, max_val, label, unit_label,
                           major_step=None, start_deg=225, end_deg=-45,
                           red_zone_start=None, show_digital=True,
                           digital_size=28, warn_high=None, warn_low=None,
-                          flash_state=False, needle_color=None):
+                          flash_state=False):
         """Draw a classic round analog gauge with needle"""
         total_sweep = end_deg - start_deg
 
@@ -1124,10 +1122,9 @@ class ClassicAnalogScreen:
         tail_len = 15
         tx = cx - int(math.cos(angle) * tail_len)
         ty = cy + int(math.sin(angle) * tail_len)
-        needle_col = needle_color if needle_color is not None else self.CL_NEEDLE
-        pygame.draw.line(surface, needle_col, (tx, ty), (nx, ny), 3)
+        pygame.draw.line(surface, self.CL_NEEDLE, (tx, ty), (nx, ny), 3)
         pygame.draw.circle(surface, self.CL_HUB, (cx, cy), 8)
-        pygame.draw.circle(surface, needle_col, (cx, cy), 4)
+        pygame.draw.circle(surface, self.CL_NEEDLE, (cx, cy), 4)
 
         # Label
         draw_text(surface, fonts, label, cx, cy + radius * 0.35,
@@ -1161,8 +1158,6 @@ class ClassicAnalogScreen:
         self.needle_speed += (speed - self.needle_speed) * 0.25
         self.needle_clt += (temp - self.needle_clt) * 0.15
         self.needle_oil += (oil - self.needle_oil) * 0.15
-        self.needle_throttle += (data['throttle'] - self.needle_throttle) * 0.25
-        self.needle_brake += (data['brake'] - self.needle_brake) * 0.25
 
         surface.fill((5, 5, 8))
 
@@ -1257,6 +1252,158 @@ class ClassicAnalogScreen:
 
 
 # ============================================================
+# SCREEN 10: G-FORCE
+# Real-time g-force circle (lateral vs longitudinal) with
+# trace history, plus digital readouts for all 3 axes.
+# ============================================================
+
+class GForceScreen:
+    NAME = "G-Force"
+    DESC = "Accelerometer g-force display"
+
+    def __init__(self):
+        self.trace = []       # History of (x, y) g-force points
+        self.max_trace = 200  # ~8 seconds at 25Hz
+        self.peak_lat = 0.0
+        self.peak_lon_accel = 0.0
+        self.peak_lon_brake = 0.0
+
+    def draw(self, surface, data, fonts, page_idx=0, page_total=1):
+        W, H = surface.get_size()
+        surface.fill(config.color('bg'))
+
+        ax = data.get('accel_x', 0.0)  # lateral
+        ay = data.get('accel_y', 0.0)  # longitudinal
+        az = data.get('accel_z', 0.0)  # vertical
+
+        # Track peaks
+        self.peak_lat = max(self.peak_lat, abs(ax))
+        if ay > 0:
+            self.peak_lon_accel = max(self.peak_lon_accel, ay)
+        else:
+            self.peak_lon_brake = max(self.peak_lon_brake, abs(ay))
+
+        # Add to trace
+        self.trace.append((ax, ay))
+        if len(self.trace) > self.max_trace:
+            self.trace.pop(0)
+
+        # ── G-FORCE CIRCLE (main element, left-center) ──
+        circle_r = 160
+        circle_cx = W // 2 - 80
+        circle_cy = H // 2 + 10
+        g_scale = 2.0  # max g displayed (radius = this many g)
+
+        # Background rings
+        for ring_g in [0.5, 1.0, 1.5, 2.0]:
+            ring_r = int(circle_r * ring_g / g_scale)
+            if ring_r > 0 and ring_r <= circle_r:
+                pygame.draw.circle(surface, (30, 30, 35), (circle_cx, circle_cy), ring_r, 1)
+
+        # Crosshair
+        pygame.draw.line(surface, (30, 30, 35),
+                        (circle_cx - circle_r, circle_cy),
+                        (circle_cx + circle_r, circle_cy), 1)
+        pygame.draw.line(surface, (30, 30, 35),
+                        (circle_cx, circle_cy - circle_r),
+                        (circle_cx, circle_cy + circle_r), 1)
+
+        # Ring labels
+        for ring_g in [0.5, 1.0, 1.5, 2.0]:
+            ring_r = int(circle_r * ring_g / g_scale)
+            if ring_r > 0 and ring_r <= circle_r:
+                draw_text(surface, fonts, f"{ring_g:.1f}",
+                         circle_cx + ring_r + 2, circle_cy - 8,
+                         size=9, color=(60, 60, 70))
+
+        # Axis labels
+        draw_text(surface, fonts, "BRAKE", circle_cx, circle_cy + circle_r + 10,
+                  size=10, color=(60, 60, 70), anchor='center')
+        draw_text(surface, fonts, "ACCEL", circle_cx, circle_cy - circle_r - 4,
+                  size=10, color=(60, 60, 70), anchor='midbottom')
+        draw_text(surface, fonts, "L", circle_cx - circle_r - 10, circle_cy,
+                  size=10, color=(60, 60, 70), anchor='center')
+        draw_text(surface, fonts, "R", circle_cx + circle_r + 14, circle_cy,
+                  size=10, color=(60, 60, 70), anchor='center')
+
+        # Outer circle border
+        pygame.draw.circle(surface, (50, 50, 55), (circle_cx, circle_cy), circle_r, 2)
+
+        # Draw trace (fading dots)
+        for i, (tx, ty) in enumerate(self.trace):
+            alpha = int(40 + 160 * i / max(len(self.trace), 1))
+            px = circle_cx + int(tx / g_scale * circle_r)
+            py = circle_cy - int(ty / g_scale * circle_r)  # Y inverted: positive = up = accel
+            # Clamp to circle
+            dx, dy = px - circle_cx, py - circle_cy
+            dist = math.sqrt(dx*dx + dy*dy)
+            if dist > circle_r:
+                px = circle_cx + int(dx / dist * circle_r)
+                py = circle_cy + int(dy / dist * circle_r)
+            color = (0, alpha // 2, alpha)  # blue trace
+            pygame.draw.circle(surface, color, (px, py), 2)
+
+        # Current position (big dot)
+        cur_px = circle_cx + int(ax / g_scale * circle_r)
+        cur_py = circle_cy - int(ay / g_scale * circle_r)
+        dx, dy = cur_px - circle_cx, cur_py - circle_cy
+        dist = math.sqrt(dx*dx + dy*dy)
+        if dist > circle_r:
+            cur_px = circle_cx + int(dx / dist * circle_r)
+            cur_py = circle_cy + int(dy / dist * circle_r)
+
+        # Glow effect
+        pygame.draw.circle(surface, (0, 60, 120), (cur_px, cur_py), 10)
+        pygame.draw.circle(surface, (0, 150, 255), (cur_px, cur_py), 6)
+        pygame.draw.circle(surface, (200, 230, 255), (cur_px, cur_py), 3)
+
+        # ── DIGITAL READOUTS (right side) ──
+        info_x = W - 130
+        y = 30
+
+        draw_text(surface, fonts, "LATERAL", info_x, y, size=11,
+                  color=config.color('text_dim'), anchor='center')
+        lat_color = config.color('brake_red') if abs(ax) > 1.2 else config.color('text')
+        draw_text(surface, fonts, f"{ax:+.2f}g", info_x, y + 20,
+                  size=32, color=lat_color, bold=True, anchor='center')
+
+        y += 75
+        draw_text(surface, fonts, "LONGITUDINAL", info_x, y, size=11,
+                  color=config.color('text_dim'), anchor='center')
+        lon_color = config.color('throttle_green') if ay > 0.5 else (config.color('brake_red') if ay < -0.5 else config.color('text'))
+        draw_text(surface, fonts, f"{ay:+.2f}g", info_x, y + 20,
+                  size=32, color=lon_color, bold=True, anchor='center')
+
+        y += 75
+        draw_text(surface, fonts, "VERTICAL", info_x, y, size=11,
+                  color=config.color('text_dim'), anchor='center')
+        draw_text(surface, fonts, f"{az:.2f}g", info_x, y + 20,
+                  size=26, color=config.color('text'), bold=True, anchor='center')
+
+        # Combined g
+        y += 65
+        combined = math.sqrt(ax*ax + ay*ay)
+        draw_text(surface, fonts, "COMBINED", info_x, y, size=11,
+                  color=config.color('text_dim'), anchor='center')
+        comb_color = config.color('gear_yellow') if combined > 1.0 else config.color('text')
+        draw_text(surface, fonts, f"{combined:.2f}g", info_x, y + 20,
+                  size=28, color=comb_color, bold=True, anchor='center')
+
+        # Peak values
+        y += 70
+        draw_text(surface, fonts, "PEAKS", info_x, y, size=11,
+                  color=config.color('text_dim'), anchor='center')
+        draw_text(surface, fonts, f"Lat: {self.peak_lat:.2f}g", info_x, y + 18,
+                  size=14, color=config.color('text_dim'), anchor='center')
+        draw_text(surface, fonts, f"Acc: {self.peak_lon_accel:.2f}g", info_x, y + 34,
+                  size=14, color=config.color('throttle_green'), anchor='center')
+        draw_text(surface, fonts, f"Brk: {self.peak_lon_brake:.2f}g", info_x, y + 50,
+                  size=14, color=config.color('brake_red'), anchor='center')
+
+        draw_page_dots(surface, W // 2, H - 10, page_total, page_idx)
+
+
+# ============================================================
 # SCREEN REGISTRY
 # To add a new screen:
 #   1. Create a class with NAME, DESC, and draw(surface, data, fonts, page_idx, page_total)
@@ -1274,6 +1421,7 @@ SCREEN_REGISTRY = [
     ('warnings',     WarningScreen),
     ('c4_corvette',  C4CorvetteScreen),
     ('classic',      ClassicAnalogScreen),
+    ('gforce',       GForceScreen),
 ]
 
 # Screen IDs for config storage
