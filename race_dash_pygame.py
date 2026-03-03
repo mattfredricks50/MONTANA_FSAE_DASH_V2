@@ -1230,29 +1230,27 @@ class ClassicAnalogScreen:
                                digital_size=20,
                                flash_state=flash_state)
 
-        # ── THROTTLE gauge (bottom-right) ──
-        thr_r = 55
-        thr_cx = W - 195
-        thr_cy = H - 65
-        self._draw_round_gauge(surface, fonts, thr_cx, thr_cy, thr_r,
-                               self.needle_throttle, 100,
-                               "THR", "%",
-                               major_step=25,
-                               digital_size=16,
-                               needle_color=config.color('throttle_green'),
-                               flash_state=flash_state)
-
-        # ── BRAKE gauge (bottom-right) ──
-        brk_r = 55
-        brk_cx = W - 70
-        brk_cy = H - 65
-        self._draw_round_gauge(surface, fonts, brk_cx, brk_cy, brk_r,
-                               self.needle_brake, 100,
-                               "BRK", "%",
-                               major_step=25,
-                               digital_size=16,
-                               needle_color=config.color('brake_red'),
-                               flash_state=flash_state)
+        # ── Throttle/Brake horizontal bars at very bottom ──
+        bar_y = H - 14
+        bar_w = W - 40
+        bar_h = 8
+        draw_rounded_rect(surface, (20, bar_y, bar_w // 2 - 5, bar_h),
+                         (20, 20, 25), radius=3)
+        tw = int((bar_w // 2 - 5) * data['throttle'] / 100)
+        if tw > 0:
+            draw_rounded_rect(surface, (20, bar_y, tw, bar_h),
+                             config.color('throttle_green'), radius=3)
+        draw_text(surface, fonts, f"THR {data['throttle']}%", 20, bar_y - 11,
+                  size=9, color=self.CL_DIM)
+        bx = 20 + bar_w // 2 + 5
+        draw_rounded_rect(surface, (bx, bar_y, bar_w // 2 - 5, bar_h),
+                         (20, 20, 25), radius=3)
+        bw = int((bar_w // 2 - 5) * data['brake'] / 100)
+        if bw > 0:
+            draw_rounded_rect(surface, (bx, bar_y, bw, bar_h),
+                             config.color('brake_red'), radius=3)
+        draw_text(surface, fonts, f"BRK {data['brake']}%", bx, bar_y - 11,
+                  size=9, color=self.CL_DIM)
 
         draw_warning_panel(surface, fonts, W // 2 - 100, 10, 200, 30, data)
         draw_page_dots(surface, W // 2, H - 4, page_total, page_idx)
