@@ -8,7 +8,7 @@
     "brightness": 100
   },
   "engine": {
-    "max_rpm": 13500,
+    "max_rpm": 15000,
     "shift_rpm": 10000,
     "critical_rpm": 11250,
     "redline_rpm": 12500,
@@ -40,17 +40,20 @@
     "uart_baud": 115200
   },
   "driver": {
-    "name": "Driver 2",
+    "name": "Driver 1",
     "event": "Practice"
   },
   "screens": {
     "enabled": [
       "lap_timer",
       "main_gauge",
-      "gps",
-      "c4_corvette",
       "classic",
-      "warnings"
+      "c4_corvette",
+      "warnings",
+      "diagnostics",
+      "gps",
+      "strip",
+      "drag"
     ]
   },
   "colors": {
