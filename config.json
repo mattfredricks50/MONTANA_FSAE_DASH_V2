@@ -24,8 +24,8 @@
     ]
   },
   "warnings": {
-    "coolant_high": 220,
-    "coolant_critical": 240,
+    "coolant_high": 260,
+    "coolant_critical": 280,
     "oil_low": 25,
     "oil_critical": 15
   },
@@ -46,7 +46,6 @@
   "screens": {
     "enabled": [
       "lap_timer",
-      "main_gauge",
       "diagnostics",
       "gps",
       "strip",
@@ -54,7 +53,8 @@
       "gforce",
       "classic",
       "c4_corvette",
-      "warnings"
+      "warnings",
+      "main_gauge"
     ]
   },
   "colors": {
