@@ -1,6 +1,7 @@
 """
+legacy gui- no longer works bad graphics performance and not designed for multiple pages, but keeping as a reference for the new design
 Race Dash - Kivy GUI
-Step 2: Multi-page touchscreen interface with Lap Timer screen
+legacy code for the original circular gauge layout and lap timer page, plus new data monitor and sensor test pages
 """
 
 # MUST be before any Kivy imports - prevents Kivy from eating our args
