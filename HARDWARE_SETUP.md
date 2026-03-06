@@ -166,10 +166,10 @@ Do this on your **laptop/desktop** (not the Pi).
 
 ### 4.1 Install PlatformIO
 
-- [ ] Install VS Code: https://code.visualstudio.com/
-- [ ] Install the **PlatformIO IDE** extension from the Extensions marketplace
-- [ ] Restart VS Code after installation
-- [ ] Open the `stm32_firmware/` folder in VS Code
+- [x] Install VS Code: https://code.visualstudio.com/
+- [x] Install the **PlatformIO IDE** extension from the Extensions marketplace
+- [x] Restart VS Code after installation
+- [x] Open the `stm32_firmware/` folder in VS Code
 - [ ] Wait for PlatformIO to download the STM32 toolchain (first time takes a few minutes)
 - [ ] Build: `Ctrl+Alt+B` (or click the checkmark in the bottom toolbar)
 - [ ] Build should succeed with no errors
