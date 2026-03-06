@@ -8,7 +8,7 @@
     "brightness": 100
   },
   "engine": {
-    "max_rpm": 15000,
+    "max_rpm": 13500,
     "shift_rpm": 10000,
     "critical_rpm": 11250,
     "redline_rpm": 12500,
@@ -31,7 +31,7 @@
   },
   "units": {
     "speed": "mph",
-    "temp": "C",
+    "temp": "F",
     "pressure": "psi"
   },
   "data": {
@@ -40,20 +40,14 @@
     "uart_baud": 115200
   },
   "driver": {
-    "name": "Driver 1",
+    "name": "Default",
     "event": "Practice"
   },
   "screens": {
     "enabled": [
       "lap_timer",
-      "diagnostics",
-      "gps",
-      "strip",
-      "drag",
       "gforce",
       "classic",
-      "c4_corvette",
-      "warnings",
       "main_gauge"
     ]
   },
