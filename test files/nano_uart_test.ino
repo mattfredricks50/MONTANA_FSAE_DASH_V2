@@ -13,13 +13,13 @@
  * WIRING (Nano → Pi 3B+):
  * ─────────────────────────────────────────────────────────
  *
- *   Nano TX (pin 1) ──→ 1KΩ ──┬──→ Pi GPIO15 (RX)
+ *   Nano TX (pin 1) ──→ 1KΩ ───┬──→ Pi GPIO15 (RX)
  *                              │
  *                             2KΩ
  *                              │
  *                             GND
  *
- *   Nano GND ──────────────→ Pi GND
+ *   Nano GND ────────────────→ Pi GND
  *
  *   ⚠ VOLTAGE DIVIDER IS REQUIRED!
  *   The Nano TX is 5V. Pi GPIO is 3.3V and NOT 5V tolerant.
