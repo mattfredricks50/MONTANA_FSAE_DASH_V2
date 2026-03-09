@@ -17,7 +17,7 @@ import math
 from collections import deque
 
 # Import our modules
-from race_dash_core import SignalBuffer, CANThread, SensorThread
+from race_dash_core import SignalBuffer, CANThread
 from race_dash_config import (config, SETTINGS_PAGES, SETTING_CHOICES,
     convert_speed, convert_temp, convert_pressure,
     speed_label, temp_label, pressure_label)
@@ -1921,9 +1921,7 @@ class RaceDashApp:
         # Data acquisition
         self.buffer = SignalBuffer()
         self.can_thread = CANThread(self.buffer, simulate=config.get('data', 'simulate'))
-        self.sensor_thread = SensorThread(self.buffer, simulate=config.get('data', 'simulate'))
         self.can_thread.start()
-        self.sensor_thread.start()
 
         # Ensure screens config section exists
         if 'screens' not in config.data:
@@ -2018,9 +2016,7 @@ class RaceDashApp:
     def shutdown(self):
         print("Shutting down...")
         self.can_thread.stop()
-        self.sensor_thread.stop()
         self.can_thread.join(timeout=0.5)
-        self.sensor_thread.join(timeout=0.5)
         pygame.quit()
         print("Shutdown complete")
 

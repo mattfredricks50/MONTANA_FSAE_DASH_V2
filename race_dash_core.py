@@ -304,29 +304,6 @@ class UARTThread(threading.Thread):
         self.stop_event.set()
 
 
-class SensorThread(threading.Thread):
-    """Placeholder - all sensors handled by STM32 now.
-    
-    Kept for backward compatibility. Does nothing in real mode.
-    Could be repurposed for Pi-side sensors if ever needed
-    (e.g. a USB accelerometer or Pi camera).
-    """
-    
-    def __init__(self, signal_buffer, simulate=True):
-        super().__init__(daemon=True)
-        self.buffer = signal_buffer
-        self.simulate = simulate
-        self.stop_event = threading.Event()
-    
-    def run(self):
-        # Nothing to do — STM32 sends everything over UART
-        while not self.stop_event.is_set():
-            self.stop_event.wait(1.0)
-    
-    def stop(self):
-        self.stop_event.set()
-
-
 # Backward compatibility alias
 CANThread = UARTThread
 
