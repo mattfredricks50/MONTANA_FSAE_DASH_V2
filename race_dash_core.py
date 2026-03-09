@@ -197,13 +197,23 @@ class UARTThread(threading.Thread):
         """
         import math as _m
         
-        # CBR 600RR drivetrain
+        # CBR 600RR drivetrain — derive from VSS calibration value
         GEARS = [2.666, 1.937, 1.661, 1.409, 1.260, 1.166]
         PRI = 2.111
-        FIN = 2.6875
-        TIRE = 2.02
-        SHIFT_RPM = 12500   # shift point
+        VSS_TEETH = 28
+        SHIFT_RPM = 12500
         IDLE_RPM = 2000
+
+        # Try to read VSS cal from config, fall back to stock
+        try:
+            from race_dash_config import config as _cfg
+            vss_ppm = _cfg.get('engine', 'vss_pulses_per_mph') or 16.65
+        except Exception:
+            vss_ppm = 16.65
+
+        # Precompute RPM-per-MPH for each gear (same math as STM32)
+        cs_rps_per_mph = vss_ppm / VSS_TEETH
+        RPM_PER_MPH = [cs_rps_per_mph * PRI * g * 60.0 for g in GEARS]
         
         cur_gear = 0        # 0-indexed (0=1st, 5=6th)
         rpm = 3000.0
@@ -254,11 +264,9 @@ class UARTThread(threading.Thread):
             # Clamp RPM
             rpm = max(IDLE_RPM, min(14000, rpm))
             
-            # Calculate speed from RPM and current gear (the real physics)
-            overall_ratio = GEARS[cur_gear] * PRI * FIN
-            wheel_rps = (rpm / 60.0) / overall_ratio
-            speed_ms = wheel_rps * TIRE
-            speed = max(0, int(speed_ms / 0.44704))  # m/s to mph
+            # Calculate speed from RPM and current gear
+            # speed = rpm / rpm_per_mph[gear]
+            speed = max(0, int(rpm / RPM_PER_MPH[cur_gear])) if RPM_PER_MPH[cur_gear] > 0 else 0
             
             # Throttle/brake
             if clutch:
@@ -276,10 +284,16 @@ class UARTThread(threading.Thread):
             ax = _m.sin(t / 2.0) * spd_frac * 1.5
             ay = 0.5 if accel and not clutch else (-0.6 if not accel and not clutch else 0.0)
             az = 1.0 + _m.sin(t * 12) * 0.03
-            
+
+            # Fake GPS: drive a figure-8 track pattern
+            # ~0.002 degrees ≈ 200m which is a reasonable FSAE track size
+            track_t = t * 0.15  # slow loop (~40s per lap)
+            sim_lat = 40.7128 + 0.001 * _m.sin(track_t)
+            sim_lon = -74.0060 + 0.0015 * _m.sin(track_t * 2)
+
             csv_line = (f"{int(rpm)},{speed},{throttle},{brake},"
                        f"{random.randint(180, 210)},{random.randint(40, 65)},"
-                       f"40.712800,-74.006000,{speed * 0.95:.1f},8,"
+                       f"{sim_lat:.6f},{sim_lon:.6f},{speed * 0.95:.1f},8,"
                        f"{ax:.2f},{ay:.2f},{az:.2f},"
                        f"{gear_display},{clutch}")
             

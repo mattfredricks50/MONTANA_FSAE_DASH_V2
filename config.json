@@ -48,7 +48,13 @@
       "lap_timer",
       "gforce",
       "classic",
-      "main_gauge"
+      "main_gauge",
+      "c4_corvette",
+      "warnings",
+      "diagnostics",
+      "gps",
+      "strip",
+      "drag"
     ]
   },
   "colors": {

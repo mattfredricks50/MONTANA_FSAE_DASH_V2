@@ -533,72 +533,193 @@ class DriverStripScreen:
 
 class GPSScreen:
     NAME = "GPS"
-    DESC = "GPS coordinates, speed, satellites"
+    DESC = "GPS coordinates, satellites, track map"
 
     def __init__(self):
-        self.speed_history = deque(maxlen=200)
+        self.trail = deque(maxlen=2000)   # GPS position history (~80s at 25Hz)
         self.flash_counter = 0
+        self.last_lat = 0.0
+        self.last_lon = 0.0
 
     def draw(self, surface, data, fonts, page_idx=0, page_total=1):
         W, H = surface.get_size()
         self.flash_counter += 1
         flash_state = (self.flash_counter // 4) % 2 == 0
-        self.speed_history.append(data['speed'])
 
         surface.fill(config.color('bg'))
         draw_shift_lights(surface, 8, 4, W - 16, 28, data['rpm'], flash_state)
 
-        draw_text(surface, fonts, "GPS / POSITION", W // 2, 40,
-                  size=18, color=config.color('text_dim'), bold=True, anchor='midtop')
-
-        # Coordinates
         lat = data.get('lat', 0.0)
         lon = data.get('lon', 0.0)
-        draw_text(surface, fonts, "LAT", 40, 80, size=13, color=config.color('text_label'))
-        draw_text(surface, fonts, f"{lat:.6f}", 40, 98, size=32,
+
+        # Only record trail when we have a GPS fix and position changes
+        if lat != 0.0 and lon != 0.0:
+            if lat != self.last_lat or lon != self.last_lon:
+                self.trail.append((lat, lon))
+                self.last_lat = lat
+                self.last_lon = lon
+
+        # ── Left column: text info ──
+        info_w = 240
+        y = 42
+        draw_text(surface, fonts, "LAT", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, f"{lat:.6f}", 20, y + 14, size=22,
                   color=config.color('text'), bold=True)
-        draw_text(surface, fonts, "LON", 40, 140, size=13, color=config.color('text_label'))
-        draw_text(surface, fonts, f"{lon:.6f}", 40, 158, size=32,
+        y += 48
+        draw_text(surface, fonts, "LON", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, f"{lon:.6f}", 20, y + 14, size=22,
                   color=config.color('text'), bold=True)
 
-        # Satellite count
+        y += 52
         sats = data.get('gps_satellites', 0)
         fix = sats >= 3
-        sat_color = config.color('best_green') if sats >= 6 else config.color('rpm_yellow') if fix else config.color('warning_red')
-        draw_text(surface, fonts, "SATS", W - 180, 80, size=13, color=config.color('text_label'))
-        draw_text(surface, fonts, str(sats), W - 180, 98, size=48,
+        sat_color = config.color('best_green') if sats >= 6 else (
+            config.color('rpm_yellow') if fix else config.color('warning_red'))
+        draw_text(surface, fonts, "SATS", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, str(sats), 20, y + 14, size=36,
                   color=sat_color, bold=True)
-        draw_text(surface, fonts, "FIX" if fix else "NO FIX", W - 180, 150,
-                  size=16, color=sat_color, bold=True)
+        draw_text(surface, fonts, "FIX" if fix else "NO FIX", 80, y + 20,
+                  size=14, color=sat_color, bold=True)
 
-        # GPS speed vs wheel speed comparison
+        y += 60
         gps_spd = data.get('gps_speed', 0)
-        draw_text(surface, fonts, "GPS SPEED", 40, 210, size=13, color=config.color('text_label'))
-        draw_text(surface, fonts, f"{convert_speed(int(gps_spd))} {speed_label()}", 40, 228,
-                  size=32, color=config.color('accent'), bold=True)
-        draw_text(surface, fonts, "WHEEL SPEED", 300, 210, size=13, color=config.color('text_label'))
-        draw_text(surface, fonts, f"{convert_speed(data['speed'])} {speed_label()}", 300, 228,
-                  size=32, color=config.color('speed_white'), bold=True)
+        draw_text(surface, fonts, "GPS SPD", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, f"{convert_speed(int(gps_spd))} {speed_label()}", 20, y + 14,
+                  size=22, color=config.color('accent'), bold=True)
 
-        # Speed trace (mini graph)
-        graph_x, graph_y, graph_w, graph_h = 40, 290, W - 80, 140
-        draw_rounded_rect(surface, (graph_x, graph_y, graph_w, graph_h),
-                         config.color('panel'), radius=6)
-        pygame.draw.rect(surface, config.color('panel_border'),
-                        (graph_x, graph_y, graph_w, graph_h), 1, border_radius=6)
-        draw_text(surface, fonts, "SPEED TRACE", graph_x + 8, graph_y + 4,
+        y += 44
+        draw_text(surface, fonts, "WHEEL SPD", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, f"{convert_speed(data['speed'])} {speed_label()}", 20, y + 14,
+                  size=22, color=config.color('speed_white'), bold=True)
+
+        y += 44
+        gear = get_gear_display(data)
+        draw_text(surface, fonts, "GEAR", 20, y, size=11, color=config.color('text_label'))
+        draw_text(surface, fonts, gear, 20, y + 14, size=36,
+                  color=config.color('gear_yellow'), bold=True)
+
+        y += 52
+        trail_len = len(self.trail)
+        draw_text(surface, fonts, f"TRAIL: {trail_len} pts", 20, y,
                   size=11, color=config.color('text_dim'))
 
-        if len(self.speed_history) > 1:
-            max_spd = max(max(self.speed_history), 10)
-            points = []
-            hist = list(self.speed_history)
-            for i, spd in enumerate(hist):
-                px = graph_x + 4 + int((graph_w - 8) * i / (len(hist) - 1))
-                py = graph_y + graph_h - 6 - int((graph_h - 20) * spd / max_spd)
-                points.append((px, py))
-            if len(points) >= 2:
-                pygame.draw.lines(surface, config.color('accent'), False, points, 2)
+        # ── Right side: Mini Map ──
+        map_x = info_w + 10
+        map_y = 38
+        map_w = W - map_x - 12
+        map_h = H - map_y - 20
+
+        # Map background
+        draw_rounded_rect(surface, (map_x, map_y, map_w, map_h),
+                         config.color('panel'), radius=8)
+        pygame.draw.rect(surface, config.color('panel_border'),
+                        (map_x, map_y, map_w, map_h), 1, border_radius=8)
+
+        # Padding inside the map box
+        pad = 20
+        draw_x = map_x + pad
+        draw_y = map_y + pad
+        draw_w = map_w - pad * 2
+        draw_h = map_h - pad * 2
+
+        if len(self.trail) >= 2:
+            trail_list = list(self.trail)
+
+            # Find bounds
+            lats = [p[0] for p in trail_list]
+            lons = [p[1] for p in trail_list]
+            min_lat, max_lat = min(lats), max(lats)
+            min_lon, max_lon = min(lons), max(lons)
+
+            # Add margin so the dot isn't right on the edge
+            lat_range = max_lat - min_lat
+            lon_range = max_lon - min_lon
+
+            # Minimum range so early samples don't produce a giant dot
+            if lat_range < 0.0001:
+                lat_range = 0.0001
+                mid = (max_lat + min_lat) / 2
+                min_lat = mid - lat_range / 2
+                max_lat = mid + lat_range / 2
+            if lon_range < 0.0001:
+                lon_range = 0.0001
+                mid = (max_lon + min_lon) / 2
+                min_lon = mid - lon_range / 2
+                max_lon = mid + lon_range / 2
+
+            # Margin (10% each side)
+            margin = 0.1
+            min_lat -= lat_range * margin
+            max_lat += lat_range * margin
+            min_lon -= lon_range * margin
+            max_lon += lon_range * margin
+            lat_range = max_lat - min_lat
+            lon_range = max_lon - min_lon
+
+            # Aspect ratio correction (latitude degrees are taller than longitude)
+            # cos(lat) corrects for map projection
+            mid_lat_rad = math.radians((min_lat + max_lat) / 2)
+            lon_scale = math.cos(mid_lat_rad)
+
+            # Scale to fit draw area while maintaining aspect ratio
+            geo_w = lon_range * lon_scale
+            geo_h = lat_range
+            scale_x = draw_w / geo_w if geo_w > 0 else 1
+            scale_y = draw_h / geo_h if geo_h > 0 else 1
+            scale = min(scale_x, scale_y)
+
+            # Center the track in the draw area
+            rendered_w = geo_w * scale
+            rendered_h = geo_h * scale
+            offset_x = draw_x + (draw_w - rendered_w) / 2
+            offset_y = draw_y + (draw_h - rendered_h) / 2
+
+            def geo_to_px(la, lo):
+                px = offset_x + (lo - min_lon) * lon_scale * scale
+                py = offset_y + rendered_h - (la - min_lat) * scale  # Y flipped
+                return int(px), int(py)
+
+            # Draw trail with fading color
+            for i in range(1, len(trail_list)):
+                # Fade from dim to bright
+                t = i / len(trail_list)
+                r = int(20 + 40 * t)
+                g = int(40 + 120 * t)
+                b = int(80 + 175 * t)
+                p1 = geo_to_px(trail_list[i-1][0], trail_list[i-1][1])
+                p2 = geo_to_px(trail_list[i][0], trail_list[i][1])
+                # Only draw if points are within the map area
+                if (map_x <= p1[0] <= map_x + map_w and map_x <= p2[0] <= map_x + map_w and
+                    map_y <= p1[1] <= map_y + map_h and map_y <= p2[1] <= map_y + map_h):
+                    thickness = 1 if t < 0.5 else 2
+                    pygame.draw.line(surface, (r, g, b), p1, p2, thickness)
+
+            # Current position dot (glow effect)
+            cx, cy = geo_to_px(lat, lon)
+            if map_x <= cx <= map_x + map_w and map_y <= cy <= map_y + map_h:
+                pygame.draw.circle(surface, (0, 60, 130), (cx, cy), 10)
+                pygame.draw.circle(surface, (0, 150, 255), (cx, cy), 6)
+                pygame.draw.circle(surface, (200, 230, 255), (cx, cy), 3)
+
+            # Start position marker (small green dot)
+            if len(trail_list) > 10:
+                sx, sy = geo_to_px(trail_list[0][0], trail_list[0][1])
+                if map_x <= sx <= map_x + map_w and map_y <= sy <= map_y + map_h:
+                    pygame.draw.circle(surface, config.color('best_green'), (sx, sy), 4)
+
+            # Compass: N arrow in top-right corner of map
+            nx, ny = map_x + map_w - 18, map_y + 18
+            draw_text(surface, fonts, "N", nx, ny, size=11,
+                      color=config.color('text_dim'), bold=True, anchor='center')
+            pygame.draw.line(surface, config.color('text_dim'),
+                           (nx, ny + 7), (nx, ny + 16), 1)
+
+        else:
+            # No trail yet
+            msg = "WAITING FOR GPS..." if lat == 0.0 else "BUILDING TRAIL..."
+            draw_text(surface, fonts, msg,
+                     map_x + map_w // 2, map_y + map_h // 2,
+                     size=16, color=config.color('text_dim'), anchor='center')
 
         draw_page_dots(surface, W // 2, H - 10, page_total, page_idx)
 
@@ -1571,6 +1692,10 @@ class SettingsScreen:
 
         if typ == 'int':
             new_val = max(vmin, min(vmax, current + step * direction))
+            config.set(section, key, new_val)
+            self.dirty = True
+        elif typ == 'float':
+            new_val = max(vmin, min(vmax, round(current + step * direction, 2)))
             config.set(section, key, new_val)
             self.dirty = True
         elif typ == 'bool':
