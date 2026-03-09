@@ -537,9 +537,22 @@ class GPSScreen:
 
     def __init__(self):
         self.trail = deque(maxlen=2000)   # GPS position history (~80s at 25Hz)
+        self.start_pos = None             # First valid GPS position (never overwritten)
         self.flash_counter = 0
         self.last_lat = 0.0
         self.last_lon = 0.0
+
+    def update(self, data):
+        """Record GPS trail. Called every frame regardless of active screen."""
+        lat = data.get('lat', 0.0)
+        lon = data.get('lon', 0.0)
+        if lat != 0.0 and lon != 0.0:
+            if self.start_pos is None:
+                self.start_pos = (lat, lon)
+            if lat != self.last_lat or lon != self.last_lon:
+                self.trail.append((lat, lon))
+                self.last_lat = lat
+                self.last_lon = lon
 
     def draw(self, surface, data, fonts, page_idx=0, page_total=1):
         W, H = surface.get_size()
@@ -551,13 +564,6 @@ class GPSScreen:
 
         lat = data.get('lat', 0.0)
         lon = data.get('lon', 0.0)
-
-        # Only record trail when we have a GPS fix and position changes
-        if lat != 0.0 and lon != 0.0:
-            if lat != self.last_lat or lon != self.last_lon:
-                self.trail.append((lat, lon))
-                self.last_lat = lat
-                self.last_lon = lon
 
         # ── Left column: text info ──
         info_w = 240
@@ -625,9 +631,14 @@ class GPSScreen:
         if len(self.trail) >= 2:
             trail_list = list(self.trail)
 
+            # Include start position in bounds so it's always visible
+            all_points = trail_list[:]
+            if self.start_pos is not None:
+                all_points.append(self.start_pos)
+
             # Find bounds
-            lats = [p[0] for p in trail_list]
-            lons = [p[1] for p in trail_list]
+            lats = [p[0] for p in all_points]
+            lons = [p[1] for p in all_points]
             min_lat, max_lat = min(lats), max(lats)
             min_lon, max_lon = min(lons), max(lons)
 
@@ -701,9 +712,9 @@ class GPSScreen:
                 pygame.draw.circle(surface, (0, 150, 255), (cx, cy), 6)
                 pygame.draw.circle(surface, (200, 230, 255), (cx, cy), 3)
 
-            # Start position marker (small green dot)
-            if len(trail_list) > 10:
-                sx, sy = geo_to_px(trail_list[0][0], trail_list[0][1])
+            # Start position marker (small green dot, pinned to first GPS fix)
+            if self.start_pos is not None:
+                sx, sy = geo_to_px(self.start_pos[0], self.start_pos[1])
                 if map_x <= sx <= map_x + map_w and map_y <= sy <= map_y + map_h:
                     pygame.draw.circle(surface, config.color('best_green'), (sx, sy), 4)
 
@@ -1990,6 +2001,12 @@ class RaceDashApp:
         while self.running:
             self.handle_events()
             data = self.buffer.get_all()
+
+            # Update all screens that need continuous data (not just the visible one)
+            for screen in self.screen_instances.values():
+                if hasattr(screen, 'update'):
+                    screen.update(data)
+
             total = len(self.active_screens)
             self.active_screens[self.current_screen].draw(
                 self.screen, data, self.fonts,
