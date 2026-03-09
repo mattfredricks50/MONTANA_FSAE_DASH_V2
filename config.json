@@ -12,7 +12,7 @@
     "shift_rpm": 10000,
     "critical_rpm": 11250,
     "redline_rpm": 12500,
-    "idle_rpm": 1000,
+    "idle_rpm": 3000,
     "num_gears": 6,
     "gear_speeds": [
       15,
@@ -24,10 +24,10 @@
     ]
   },
   "warnings": {
-    "coolant_high": 260,
-    "coolant_critical": 280,
-    "oil_low": 25,
-    "oil_critical": 15
+    "coolant_high": 195,
+    "coolant_critical": 225,
+    "oil_low": 30,
+    "oil_critical": 25
   },
   "units": {
     "speed": "mph",
@@ -49,12 +49,12 @@
       "gforce",
       "classic",
       "main_gauge",
-      "c4_corvette",
       "warnings",
       "diagnostics",
       "gps",
       "strip",
-      "drag"
+      "drag",
+      "c4_corvette"
     ]
   },
   "colors": {

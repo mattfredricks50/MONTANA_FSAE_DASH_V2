@@ -1944,6 +1944,25 @@ class RaceDashApp:
         self.touch_start_y = None
         self.swipe_threshold = 80
 
+        # ── Physical button on GPIO (cycle screens with gloves on) ──
+        # GPIO16 (pin 36) — momentary push button to GND, internal pull-up
+        # Falls back gracefully on PC (no RPi.GPIO available)
+        self.btn_pin = 16
+        self.btn_available = False
+        self.btn_last_state = True   # True = released (pulled high)
+        self.btn_last_press = 0      # millis of last press (debounce)
+        self.btn_debounce_ms = 200   # reject presses faster than this
+        try:
+            import RPi.GPIO as GPIO
+            self.GPIO = GPIO
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.btn_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            self.btn_available = True
+            print(f"# Button on GPIO{self.btn_pin} ready")
+        except (ImportError, RuntimeError):
+            self.GPIO = None
+            print("# No GPIO available (PC mode) — button disabled")
+
     def rebuild_screens(self):
         """Rebuild the active screen list from config.
         Called when screens are toggled in settings."""
@@ -1959,6 +1978,17 @@ class RaceDashApp:
         self.current_screen = len(self.active_screens) - 1
 
     def handle_events(self):
+        # ── Poll physical button (GPIO) ──
+        if self.btn_available:
+            state = self.GPIO.input(self.btn_pin)  # LOW = pressed
+            now_ms = int(time.time() * 1000)
+            if state == False and self.btn_last_state == True:
+                # Falling edge — button just pressed
+                if now_ms - self.btn_last_press > self.btn_debounce_ms:
+                    self.btn_last_press = now_ms
+                    self.current_screen = (self.current_screen + 1) % len(self.active_screens)
+            self.btn_last_state = state
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -2017,6 +2047,8 @@ class RaceDashApp:
         print("Shutting down...")
         self.can_thread.stop()
         self.can_thread.join(timeout=0.5)
+        if self.btn_available:
+            self.GPIO.cleanup()
         pygame.quit()
         print("Shutdown complete")
 

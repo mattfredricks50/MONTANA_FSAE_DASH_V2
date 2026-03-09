@@ -41,7 +41,8 @@ Verify you have all parts before starting:
 | 10 | Brake pressure sensor (100 PSI, 0.5–4.5V) | [ ] |
 | 11 | Steering angle potentiometer | [ ] |
 | 12 | Clutch switch (normally open, closes to GND) | [ ] |
-| 13 | MicroSD card (16GB, FAT32) | [ ] |
+| 13 | LM393 comparator DIP-8 (VSS signal conditioning) | [ ] |
+| 14 | MicroSD card (16GB, FAT32) | [ ] |
 | 14 | 120Ω resistor ×2 (CAN termination) | [ ] |
 | 15 | 10KΩ resistor ×2 (voltage divider for 5V sensors) | [ ] |
 | 16 | 20KΩ resistor ×2 (voltage divider for 5V sensors) | [ ] |
@@ -166,10 +167,10 @@ Do this on your **laptop/desktop** (not the Pi).
 
 ### 4.1 Install PlatformIO
 
-- [x] Install VS Code: https://code.visualstudio.com/
-- [x] Install the **PlatformIO IDE** extension from the Extensions marketplace
-- [x] Restart VS Code after installation
-- [x] Open the `stm32_firmware/` folder in VS Code
+- [ ] Install VS Code: https://code.visualstudio.com/
+- [ ] Install the **PlatformIO IDE** extension from the Extensions marketplace
+- [ ] Restart VS Code after installation
+- [ ] Open the `stm32_firmware/` folder in VS Code
 - [ ] Wait for PlatformIO to download the STM32 toolchain (first time takes a few minutes)
 - [ ] Build: `Ctrl+Alt+B` (or click the checkmark in the bottom toolbar)
 - [ ] Build should succeed with no errors
@@ -334,7 +335,47 @@ SN65HVD230 CANL ────→ Speeduino CAN_L
 - [ ] 120Ω termination at both ends
 - [ ] Rs pin on SN65HVD230 tied to GND
 
-### 5.8 Analog Sensors (Brake Pressure / Steering Angle)
+### 5.8 Vehicle Speed Sensor (VSS) — Reluctor Pickup
+
+The CBR 600RR speed sensor is a **passive reluctor** (magnetic pickup) that reads 28 teeth on the countershaft 3rd gear inside the engine case. It outputs a low-voltage AC sine wave whose frequency is proportional to speed. **This signal cannot be connected directly to the STM32** — it needs a comparator circuit to convert it to a clean 3.3V digital square wave.
+
+**Signal conditioning circuit (LM393 comparator):**
+
+```
+                            3.3V
+                             │
+                            4.7KΩ  (pull-up on output)
+                             │
+VSS reluctor wire A ──┬── LM393 IN+ (pin 3)     LM393 OUT (pin 1) ──→ STM32 PB3
+                      │                                │
+                     10KΩ (bias to midpoint)           │
+                      │                          (open collector,
+VSS reluctor wire B ──┴── LM393 IN- (pin 2)      pulled high by 4.7K)
+                      │
+                     10KΩ
+                      │
+                     GND
+
+LM393 power:
+  VCC (pin 8) ──→ 3.3V
+  GND (pin 4) ──→ GND
+
+Optional: 100pF cap from IN+ to GND (noise filter on long wire runs)
+Optional: 100KΩ feedback from OUT to IN+ (hysteresis, prevents chatter)
+```
+
+**How it works:** The reluctor outputs a sine wave centered around 0V. The two 10KΩ resistors bias the negative input to a virtual ground (midpoint). When the sine wave swings positive (tooth passing), the comparator output goes LOW; when negative (gap), it goes HIGH. The 4.7KΩ pull-up creates a clean 3.3V square wave. The STM32 counts rising edges via interrupt.
+
+**Alternative — if the Speeduino already conditions the VSS signal:** If the Speeduino's wiring harness provides a clean 5V square wave VSS output, you can skip the LM393 and just use a simple voltage divider (10KΩ + 20KΩ) to step it down to 3.3V for PB3.
+
+> **Parts needed:** LM393 comparator (DIP-8, ~$0.50), 2× 10KΩ, 1× 4.7KΩ, optional 100pF cap and 100KΩ for hysteresis.
+
+- [ ] LM393 comparator circuit built on breadboard
+- [ ] Verify output with multimeter or oscilloscope: 0V/3.3V square wave when spinning the wheel
+- [ ] Comparator output → STM32 PB3
+- [ ] **TEST:** Spin the front wheel by hand. Watch serial output — `speed_mph` should show a low value (1-5 mph). Faster spin = higher reading. Stopped wheel = 0.
+
+### 5.9 Analog Sensors (Brake Pressure / Steering Angle)
 
 **5V sensors need a voltage divider to bring the signal down to 3.3V max for the STM32 ADC.**
 
@@ -368,7 +409,7 @@ Steering angle pot (3-wire, 5V):
 - [ ] Steering pot → divider → PA1
 - [ ] **TEST:** Watch `analog_0_raw` and `analog_1_raw` in the SD log. Should vary 0-4095 as you apply pressure / turn the pot.
 
-### 5.9 nRF24L01+ Telemetry (Wire Now, Enable Later)
+### 5.10 nRF24L01+ Telemetry (Wire Now, Enable Later)
 
 ```
 nRF VCC  ────→ STM32 3.3V   (⚠ 3.3V ONLY — 5V will destroy it!)
@@ -388,6 +429,24 @@ nRF IRQ  ────→ not connected (unused)
 - [ ] nRF24 wired to SPI2 pins
 - [ ] 10µF capacitor across VCC/GND at the module
 - [ ] **Confirmed:** VCC is 3.3V, NOT 5V
+
+### 5.11 Screen Cycle Button (Pi GPIO)
+
+A single momentary push button wired directly to the Pi for cycling through screens with gloves on. No STM32 involvement.
+
+```
+Button terminal A ────→ Pi GPIO16 (pin 36)
+Button terminal B ────→ Pi GND    (pin 34 or any GND)
+```
+
+**Pull-up: Internal (configured in software).** No external resistor needed. GPIO16 is held HIGH by the Pi's internal pull-up. Pressing the button pulls it LOW, the software detects the falling edge and advances to the next screen. 200ms debounce is built in.
+
+**Any momentary NO (normally open) push button works.** A waterproof panel-mount button is ideal for the car. If you only have an NC (normally closed) button, just swap the logic in the code: change `if state == False` to `if state == True`.
+
+> **Why GPIO16?** It's on the outer edge of the Pi header (pin 36), easy to solder one wire to. It's not used by UART, I2C, SPI, or any other peripheral. Any free GPIO would work — just change `self.btn_pin` in `race_dash_pygame.py`.
+
+- [ ] Button wired: one terminal to GPIO16 (pin 36), other to GND (pin 34)
+- [ ] **TEST:** Run dashboard, press button — screen should advance. Press again — next screen. Cycles through all enabled screens plus settings.
 
 ---
 
@@ -501,6 +560,7 @@ PA12 ── CAN TX → SN65HVD230 D
 
 PB0  ── Sim mode jumper (LOW = sim, internal pull-up)
 PB1  ── nRF24 CE
+PB3  ── VSS pulse input (from LM393 comparator, rising edge interrupt)
 PB6  ── I2C1 SCL → MPU-6050 SCL
 PB7  ── I2C1 SDA → MPU-6050 SDA
 PB8  ── Clutch switch (LOW = clutch in, internal pull-up)
@@ -514,6 +574,7 @@ PC13 ── Onboard LED (active low)
 Pi Zero 2W GPIO:
   GPIO15 (RX) ← STM32 PA9 (TX)    ★ Main data link
   GPIO14 (TX) → STM32 PA10 (RX)    (reserved)
+  GPIO16      ← Screen cycle button (to GND, internal pull-up)
   GND ────────── STM32 GND          ★ Common ground
 ```
 
@@ -562,6 +623,15 @@ Pi Zero 2W GPIO:
 2. When implemented: verify 120Ω termination at both ends
 3. Check that SN65HVD230 Rs pin is tied to GND
 4. Verify Speeduino is configured to broadcast on CAN (not just serial)
+
+### Speed sensor (VSS) reads zero or erratic values
+
+1. Check LM393 comparator output with multimeter: should toggle 0V / 3.3V when spinning wheel
+2. If output stays at 3.3V constantly: check bias resistors on IN- (should sit at ~1.65V)
+3. If output is noisy/jittery: add 100pF cap on IN+ and 100KΩ hysteresis feedback
+4. Verify PB3 wiring — it must be the comparator output, not the raw reluctor signal
+5. If speed reads way too high or low: check VSS_TEETH constant (28 for CBR 600RR stock)
+6. If you changed sprockets: update FINAL_RATIO in firmware
 
 ---
 
