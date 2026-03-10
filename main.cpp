@@ -42,6 +42,14 @@
  *   Simulation Mode:
  *     PB0  = Pull LOW at boot to enable sim mode (internal pullup)
  *            Leave floating or HIGH for real sensor mode
+ *
+ *   Clutch Switch:
+ *     PB8  = Pull LOW = clutch lever pulled (internal pullup)
+ *
+ *   Vehicle Speed Sensor (VSS):
+ *     PB3  = Conditioned pulse input (interrupt on rising edge)
+ *            CBR 600RR: reluctor reads 28 teeth on countershaft
+ *            Requires LM393 comparator to convert sine wave to 3.3V square
  * 
  * DATA FLOW:
  *   CAN/Analog/GPS → STM32 → SD card (full rate, ~100Hz)
@@ -96,6 +104,11 @@
 // Clutch switch (digital input)
 #define CLUTCH_PIN      PB8     // Pull LOW = clutch engaged (closed switch to GND)
 
+// Vehicle Speed Sensor (VSS) — hall/reluctor pulse input
+// CBR 600RR: 28 pulses per countershaft revolution
+// Signal must be conditioned to 3.3V square wave (use LM393 comparator)
+#define VSS_PIN         PB3     // External interrupt on rising edge
+
 // ============================================================
 // CONFIGURATION
 // ============================================================
@@ -105,8 +118,8 @@
 #define CAN_BITRATE         500000
 
 // ── CBR 600RR Drivetrain Config ──
-// Gear ratios from Honda service manual (2003-2006 CBR600RR)
-// Adjust if you have a different year or aftermarket gears.
+// Internal gear ratios from Honda service manual (2003-2006 CBR600RR)
+// These only change if you swap transmission gears (you won't).
 #define NUM_GEARS           6
 const float GEAR_RATIOS[NUM_GEARS] = {
     2.666f,   // 1st (32/12)
@@ -116,14 +129,86 @@ const float GEAR_RATIOS[NUM_GEARS] = {
     1.260f,   // 5th (29/23)
     1.166f    // 6th (28/24)
 };
-const float PRIMARY_RATIO  = 2.111f;   // 76/36
-// Final drive: adjust to your sprocket setup (stock US = 16/43)
-const float FINAL_RATIO    = 2.6875f;  // 43/16 (stock US 03-06)
-// Rear tire circumference in meters (180/55-17 ≈ 2.02m)
-const float TIRE_CIRC_M    = 2.02f;
+const float PRIMARY_RATIO  = 2.111f;   // 76/36 — internal, doesn't change
+
+// ═══════════════════════════════════════════════════════════
+// THE ONE NUMBER YOU NEED TO CALIBRATE
+// ═══════════════════════════════════════════════════════════
+//
+// VSS_PULSES_PER_MPH: how many VSS pulses per second at exactly 1 MPH.
+// This single value encodes: tooth count, final drive ratio, and tire size.
+//
+// Formula:
+//   vss_pulses_per_mph = (teeth × final_ratio) / (tire_circ_m / 0.44704)
+//
+// Stock CBR 600RR (28 teeth, 43/16 sprockets, 180/55-17 tire):
+//   = (28 × 2.6875) / (2.02 / 0.44704)
+//   = 75.25 / 4.5188
+//   = 16.65
+//
+// If you change sprockets or tires, recalculate:
+//   final_ratio = rear_teeth / front_teeth
+//   tire_circ_m ≈ measure it, or use: (rim_dia_mm + 2 × section_width_mm × aspect_ratio / 100) × π / 1000
+//
+// Or just calibrate empirically: drive at a known GPS speed and adjust until they match.
+//
+// This can be changed from the Pi settings screen at runtime.
+
+float VSS_PULSES_PER_MPH   = 16.65f;  // stock CBR 600RR, 43/16, 180/55-17
+
+// Precomputed RPM per MPH for each gear (used for gear detection).
+// rpm_per_mph[g] = primary × gear_ratio[g] × final × 60 × 0.44704 / tire_circ
+// With stock values (primary 2.111, final 2.6875, tire 2.02m):
+//   constant_factor = 2.111 × 2.6875 × 60 × 0.44704 / 2.02 = 75.284
+// Then multiply by each gear ratio.
+// These are recalculated at boot from VSS_PULSES_PER_MPH so they
+// stay in sync when you change sprockets/tires.
+
+float RPM_PER_MPH[NUM_GEARS];  // filled by recalc_drivetrain()
+
+void recalc_drivetrain() {
+    // Derive RPM-per-MPH for each gear from VSS_PULSES_PER_MPH.
+    //
+    // VSS_PULSES_PER_MPH = (teeth × final) / (tire / 0.44704)
+    // So: final / tire = VSS_PULSES_PER_MPH × 0.44704 / teeth  ... (*)
+    //
+    // RPM_PER_MPH[g] = primary × gear[g] × final × 60 × 0.44704 / tire
+    //                = primary × gear[g] × (final/tire) × 60 × 0.44704
+    //
+    // But we can simplify: at 1 MPH, countershaft does
+    // VSS_PULSES_PER_MPH / teeth revolutions per second.
+    // Engine RPM = countershaft_rps × primary × gear_ratio × 60
+    //
+    // So: RPM_PER_MPH[g] = (VSS_PULSES_PER_MPH / teeth) × primary × gear[g] × 60
+
+    float countershaft_rps_per_mph = VSS_PULSES_PER_MPH / 28.0f;  // 28 teeth
+
+    for (uint8_t g = 0; g < NUM_GEARS; g++) {
+        RPM_PER_MPH[g] = countershaft_rps_per_mph * PRIMARY_RATIO * GEAR_RATIOS[g] * 60.0f;
+    }
+
+    PI_SERIAL.print("# VSS cal: ");
+    PI_SERIAL.print(VSS_PULSES_PER_MPH, 2);
+    PI_SERIAL.print(" pulses/mph  |  RPM/MPH per gear: ");
+    for (uint8_t g = 0; g < NUM_GEARS; g++) {
+        PI_SERIAL.print(RPM_PER_MPH[g], 1);
+        if (g < NUM_GEARS - 1) PI_SERIAL.print(", ");
+    }
+    PI_SERIAL.println();
+}
+
 // Gear detection tolerance: how close (as a ratio) actual RPM must
 // be to the predicted RPM for a gear to match. 0.08 = within 8%.
 const float GEAR_MATCH_TOL = 0.08f;
+
+// ── Vehicle Speed Sensor (VSS) ──
+// CBR 600RR reluctor reads countershaft 3rd gear: 28 teeth
+// Minimum microseconds between pulses to reject noise
+// At 200mph → ~3130 Hz → 320µs period. Anything under 200µs is noise.
+const uint32_t VSS_MIN_PERIOD_US   = 200;
+// Maximum microseconds between pulses before speed = 0
+// At 2mph → ~33 Hz → ~30000µs. No pulse for 100ms = stopped.
+const uint32_t VSS_TIMEOUT_US      = 100000;
 
 // Timing intervals (milliseconds)
 #define SD_LOG_INTERVAL_MS  10      // 100Hz full-rate logging
@@ -224,6 +309,8 @@ void read_can();
 void read_gps();
 void read_analog();
 void update_sim_data();
+void init_vss();
+void update_speed_from_vss();
 void log_to_sd();
 void send_to_pi();
 void send_to_nrf();
@@ -274,6 +361,14 @@ void setup() {
     // IMU (always init - useful even in sim for bench vibration testing)
     init_imu();
 
+    // Precompute RPM-per-MPH table from VSS calibration
+    recalc_drivetrain();
+
+    // VSS (speed sensor) — only in live mode
+    if (!sim_mode) {
+        init_vss();
+    }
+
     // Send CSV header so Pi knows the format
     PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH");
 
@@ -299,6 +394,7 @@ void loop() {
         read_analog();              // Fast ADC reads
         read_imu();                 // Accelerometer (I2C, ~0.5ms)
         read_clutch();              // Clutch switch (digital, instant)
+        update_speed_from_vss();    // Convert pulse period to mph
         calculate_gear();           // Gear from RPM + wheel speed
 
         if (now - last_gps_parse >= GPS_PARSE_INTERVAL_MS) {
@@ -391,11 +487,13 @@ void update_sim_data() {
     sim_rpm = constrain(sim_rpm, 2000, 14000);
     current_data.rpm = sim_rpm;
 
-    // Speed from RPM + gear (real physics)
-    float overall = GEAR_RATIOS[sim_gear] * PRIMARY_RATIO * FINAL_RATIO;
-    float wheel_rps = (sim_rpm / 60.0f) / overall;
-    float speed_ms = wheel_rps * TIRE_CIRC_M;
-    current_data.speed_mph = max(0, (int)(speed_ms / 0.44704f));
+    // Speed from RPM + gear using precomputed RPM_PER_MPH
+    // speed = rpm / rpm_per_mph[gear]
+    if (RPM_PER_MPH[sim_gear] > 0) {
+        current_data.speed_mph = max(0, (int)((float)sim_rpm / RPM_PER_MPH[sim_gear]));
+    } else {
+        current_data.speed_mph = 0;
+    }
 
     // Throttle/brake
     if (current_data.clutch_in) {
@@ -608,6 +706,67 @@ void read_analog() {
 }
 
 // ============================================================
+// VEHICLE SPEED SENSOR (VSS) — Interrupt-driven pulse counting
+// ============================================================
+//
+// The CBR 600RR speed sensor is a reluctor (passive magnetic pickup)
+// reading 28 teeth on the countershaft 3rd gear. It outputs an AC
+// sine wave that must be conditioned into a 3.3V square wave using
+// an LM393 comparator before connecting to the STM32.
+//
+// Speed calculation uses a single calibration value:
+//   speed_mph = pulse_frequency / VSS_PULSES_PER_MPH
+//
+// This value is configurable from the Pi settings screen.
+// At low speed: few pulses, so we measure period between pulses.
+// At high speed: thousands of pulses/sec, very accurate.
+// Below ~2 mph: too few pulses for reliable measurement, reads 0.
+
+volatile uint32_t vss_last_pulse_us = 0;   // micros() of last valid pulse
+volatile uint32_t vss_period_us = 0;       // time between last two pulses
+volatile uint32_t vss_pulse_count = 0;     // total pulse count (for distance)
+
+void vss_isr() {
+    uint32_t now_us = micros();
+    uint32_t dt = now_us - vss_last_pulse_us;
+
+    // Debounce: reject pulses faster than physically possible
+    if (dt < VSS_MIN_PERIOD_US) return;
+
+    vss_period_us = dt;
+    vss_last_pulse_us = now_us;
+    vss_pulse_count++;
+}
+
+void init_vss() {
+    pinMode(VSS_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(VSS_PIN), vss_isr, RISING);
+    PI_SERIAL.println("# VSS initialized on PB3 (28 teeth/rev)");
+}
+
+void update_speed_from_vss() {
+    // Check for timeout (vehicle stopped)
+    uint32_t now_us = micros();
+    uint32_t elapsed = now_us - vss_last_pulse_us;
+
+    if (elapsed > VSS_TIMEOUT_US || vss_period_us == 0) {
+        current_data.speed_mph = 0;
+        return;
+    }
+
+    // Read the period (volatile, so grab a local copy)
+    noInterrupts();
+    uint32_t period = vss_period_us;
+    interrupts();
+
+    // speed = pulse_frequency / VSS_PULSES_PER_MPH
+    float freq = 1000000.0f / (float)period;
+    float speed_mph = freq / VSS_PULSES_PER_MPH;
+
+    current_data.speed_mph = (uint16_t)max(0.0f, min(speed_mph, 255.0f));
+}
+
+// ============================================================
 // CLUTCH & GEAR DETECTION
 // ============================================================
 
@@ -617,19 +776,15 @@ void read_clutch() {
 }
 
 void calculate_gear() {
-    // Calculate gear from RPM and wheel speed using known drivetrain ratios.
+    // Detect current gear by comparing actual RPM to expected RPM
+    // at the current speed for each gear.
     //
-    // Theory: wheel_rps = speed_mph * 0.44704 / tire_circ_m
-    //         For each gear g: expected_rpm = wheel_rps * final * primary * gear_ratio[g] * 60
-    //         Pick the gear whose expected RPM is closest to actual RPM.
+    // RPM_PER_MPH[g] is precomputed at boot from VSS_PULSES_PER_MPH,
+    // so it automatically stays in sync with the speed calibration.
     //
-    // Edge cases:
-    //   - Clutch pulled in → show 0 (neutral/disengaged)
-    //   - Speed too low (<5 mph) → unreliable, show 0
-    //   - RPM too low (<1500) → engine likely idle, show 0
-    //   - No gear matches within tolerance → show 0
+    // expected_rpm = speed_mph × RPM_PER_MPH[g]
+    // Pick the gear whose expected RPM is closest to actual RPM.
 
-    // If clutch is in, we can't determine gear (could be between gears)
     if (current_data.clutch_in) {
         current_data.gear = 0;
         return;
@@ -638,28 +793,22 @@ void calculate_gear() {
     uint16_t rpm = current_data.rpm;
     uint16_t speed = current_data.speed_mph;
 
-    // Need minimum RPM and speed for reliable detection
     if (rpm < 1500 || speed < 5) {
         current_data.gear = 0;
         return;
     }
 
-    // Convert speed to wheel revolutions per second
-    float speed_ms = speed * 0.44704f;             // mph to m/s
-    float wheel_rps = speed_ms / TIRE_CIRC_M;      // wheel revs per second
-
-    // For each gear, calculate what RPM we'd expect
     float best_error = 999999.0f;
     uint8_t best_gear = 0;
 
     for (uint8_t g = 0; g < NUM_GEARS; g++) {
-        float expected_rpm = wheel_rps * FINAL_RATIO * PRIMARY_RATIO * GEAR_RATIOS[g] * 60.0f;
-        float error = abs((float)rpm - expected_rpm);
+        float expected_rpm = (float)speed * RPM_PER_MPH[g];
+        float error = fabsf((float)rpm - expected_rpm);
         float error_pct = error / expected_rpm;
 
         if (error_pct < GEAR_MATCH_TOL && error < best_error) {
             best_error = error;
-            best_gear = g + 1;  // 1-indexed
+            best_gear = g + 1;
         }
     }
 

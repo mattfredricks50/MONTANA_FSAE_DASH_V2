@@ -10,6 +10,8 @@
             "includePath": [
                 "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/src",
                 "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/TinyGPSPlus/src",
+                "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/SD/src",
+                "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/cores/arduino/avr",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/cores/arduino/stm32",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SrcWrapper/inc",
@@ -38,7 +40,6 @@
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Keyboard/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Mouse/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/RGB_LED_TLC59731/src",
-                "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Servo/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SoftwareSerial/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SrcWrapper/src",
@@ -53,6 +54,8 @@
                 "path": [
                     "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/src",
                     "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/TinyGPSPlus/src",
+                    "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/SD/src",
+                    "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/cores/arduino/avr",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/cores/arduino/stm32",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SrcWrapper/inc",
@@ -81,7 +84,6 @@
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Keyboard/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Mouse/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/RGB_LED_TLC59731/src",
-                    "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Servo/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SoftwareSerial/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SrcWrapper/src",
