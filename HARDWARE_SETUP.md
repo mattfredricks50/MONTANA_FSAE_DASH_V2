@@ -218,12 +218,18 @@ STM32 GND  ──────────────────→ Pi GND
 
 Optional (not used yet):
 STM32 PA10 (UART1 RX) ←────── Pi GPIO14 (TX)
+
+Pi-controlled flashing (allows firmware updates from the dash settings screen):
+Pi GPIO17 (pin 11) ──────────→ STM32 BOOT0   (HIGH = bootloader mode)
+Pi GPIO27 (pin 13) ──────────→ STM32 NRST    (pulse LOW to reset)
 ```
 
-**No pull-ups needed.** UART idles high, and both devices are 3.3V.
+**No pull-ups needed.** UART idles high, and both devices are 3.3V. BOOT0 and NRST are active-driven by the Pi.
 
 - [ ] PA9 → GPIO15 wired
 - [ ] GND → GND wired
+- [ ] GPIO17 → BOOT0 wired
+- [ ] GPIO27 → NRST wired
 - [ ] **TEST:** Power both on. Pi should show data in `python3 -c "import serial; s=serial.Serial('/dev/ttyAMA0', 115200, timeout=1); [print(s.readline()) for _ in range(10)]"`
   - With PB0 floating (live mode), you'll see `# Ready` then lines of zeros
   - With PB0 pulled LOW (sim mode), you'll see CSV data streaming
@@ -478,23 +484,33 @@ With everything wired on the breadboard, run through this full system test:
 
 ### 6.3 Pi → STM32 Flashing Test
 
-Verify you can flash the STM32 from the Pi (for in-car updates):
+Verify you can flash the STM32 from the Pi (for in-car updates).
+
+**Automated (from dashboard):** Go to Settings → Update tab → press "FLASH STM32".
+The Pi controls BOOT0 and NRST via GPIO17/GPIO27 automatically — no jumper changes needed.
+
+**Manual (command line):**
 
 ```bash
 # On the Pi:
 sudo apt install -y stm32flash
 
-# Set BOOT0 HIGH on the STM32, then reset it
+# The Pi controls BOOT0 (GPIO17) and NRST (GPIO27) automatically,
+# but if testing manually, you can set BOOT0 HIGH and reset:
+#   gpio -g write 17 1 && gpio -g write 27 0 && sleep 0.1 && gpio -g write 27 1
 
 # Flash:
-stm32flash -w /home/pi/dash/firmware.bin -v /dev/ttyAMA0
+stm32flash -w /home/pi/dash/firmware.bin -v -g 0x0 /dev/ttyAMA0
 
-# Set BOOT0 back LOW, reset the STM32
+# Return to normal mode:
+#   gpio -g write 17 0 && gpio -g write 27 0 && sleep 0.1 && gpio -g write 27 1
 ```
 
-- [ ] stm32flash installed on Pi
-- [ ] Successfully flashed STM32 from Pi over UART
-- [ ] STM32 runs new firmware after BOOT0 set back LOW
+- [ ] `stm32flash` installed on Pi (`sudo apt install -y stm32flash`)
+- [ ] GPIO17 → BOOT0 and GPIO27 → NRST wired
+- [ ] Place `firmware.bin` in `/home/pi/dash/` (copy from PlatformIO build: `.pio/build/genericSTM32F103RC/firmware.bin`)
+- [ ] Successfully flashed STM32 from Settings → Update → FLASH STM32
+- [ ] STM32 runs new firmware after automatic reset
 
 ---
 
@@ -572,10 +588,12 @@ PB15 ── SPI2 MOSI → nRF24 MOSI
 PC13 ── Onboard LED (active low)
 
 Pi Zero 2W GPIO:
-  GPIO15 (RX) ← STM32 PA9 (TX)    ★ Main data link
-  GPIO14 (TX) → STM32 PA10 (RX)    (reserved)
-  GPIO16      ← Screen cycle button (to GND, internal pull-up)
-  GND ────────── STM32 GND          ★ Common ground
+  GPIO14 (TX)  → STM32 PA10 (RX)    (reserved)
+  GPIO15 (RX)  ← STM32 PA9 (TX)     ★ Main data link
+  GPIO16       ← Screen cycle button (to GND, internal pull-up)
+  GPIO17       → STM32 BOOT0        ★ Flash control (HIGH = bootloader)
+  GPIO27       → STM32 NRST         ★ Flash control (pulse LOW = reset)
+  GND ─────────── STM32 GND         ★ Common ground
 ```
 
 ---
@@ -646,7 +664,8 @@ stm32_firmware/
 Pi dashboard (copy to /home/pi/dash/):
 ├── race_dash_config.py     # Configuration, units, colors, settings
 ├── race_dash_core.py       # UART thread, CSV parser, signal buffer
-└── race_dash_pygame.py     # PyGame rendering, 10 screens, settings UI
+├── race_dash_pygame.py     # PyGame rendering, 10 screens, settings UI
+└── race_dash_updater.py    # STM32 flashing (GPIO + stm32flash) & Pi git pull
 ```
 
 ---
@@ -668,4 +687,6 @@ Pi dashboard (copy to /home/pi/dash/):
 | CAN bus (Speeduino decode) | ❌ TODO — wiring ready, firmware needs eXoCAN |
 | nRF24 telemetry to pit | ❌ TODO — wiring ready, firmware needs RF24 |
 | Lap timing | ❌ TODO — needs GPS geofence or IR beacon |
+| In-app STM32 flashing (Settings → Update) | ✅ Working (needs GPIO17→BOOT0, GPIO27→NRST) |
+| In-app Pi software update (git pull) | ✅ Working |
 | Pi boot optimization | ⚡ Optional — works now, just slow (~15-20s) |
