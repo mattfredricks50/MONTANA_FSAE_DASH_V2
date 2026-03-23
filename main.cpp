@@ -39,6 +39,11 @@
  *   Debug LED:
  *     PC13 = Onboard LED (active low on most boards)
  * 
+ *   Pi → STM32 Flashing (GPIO control for UART bootloader):
+ *     Pi GPIO17 → STM32 BOOT0  (Pi drives HIGH to enter bootloader)
+ *     Pi GPIO27 → STM32 NRST   (Pi pulses LOW to reset STM32)
+ *     Allows firmware updates from the dash settings screen.
+ *
  *   Simulation Mode:
  *     PB0  = Pull LOW at boot to enable sim mode (internal pullup)
  *            Leave floating or HIGH for real sensor mode
@@ -132,7 +137,7 @@ const float GEAR_RATIOS[NUM_GEARS] = {
 const float PRIMARY_RATIO  = 2.111f;   // 76/36 — internal, doesn't change
 
 // ═══════════════════════════════════════════════════════════
-// THE ONE NUMBER YOU NEED TO CALIBRATE
+// THE ONE NUMBER I NEED TO CALIBRATE!!!!
 // ═══════════════════════════════════════════════════════════
 //
 // VSS_PULSES_PER_MPH: how many VSS pulses per second at exactly 1 MPH.

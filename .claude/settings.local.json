@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python \"C:/Users/craft/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/a1442faa-b065-4024-9fb5-125dcba2cc3c/11348dab-a73e-4824-b09d-721eb98ecf6c/skills/docx/scripts/office/unpack.py\" \"fsae_dashboard_documentation \\(2\\).docx\" unpacked_docx/)"
+    ]
+  }
+}
