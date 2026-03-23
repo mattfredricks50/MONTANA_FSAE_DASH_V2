@@ -2040,7 +2040,7 @@ class RaceDashApp:
         self.btn_available = False
         self.btn_last_state = True   # True = released (pulled high)
         self.btn_last_press = 0      # millis of last press (debounce)
-        self.btn_debounce_ms = 200   # reject presses faster than this
+        self.btn_debounce_ms = 150   # reject presses faster than this
         try:
             import RPi.GPIO as GPIO
             self.GPIO = GPIO

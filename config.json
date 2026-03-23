@@ -43,18 +43,22 @@
     "name": "Default",
     "event": "Practice"
   },
+  "update": {
+    "git_repo": "https://github.com/mattfredricks50/MONTANA_FSAE_DASH_V2.git",
+    "git_branch": "main",
+    "build_firmware": true
+  },
   "screens": {
     "enabled": [
       "lap_timer",
       "gforce",
       "main_gauge",
       "drag",
-      "classic",
       "strip",
       "gps",
       "diagnostics",
-      "warnings",
-      "c4_corvette"
+      "c4_corvette",
+      "classic"
     ]
   },
   "colors": {
