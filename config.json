@@ -47,13 +47,13 @@
     "enabled": [
       "lap_timer",
       "gforce",
-      "classic",
       "main_gauge",
-      "warnings",
-      "diagnostics",
-      "gps",
-      "strip",
       "drag",
+      "classic",
+      "strip",
+      "gps",
+      "diagnostics",
+      "warnings",
       "c4_corvette"
     ]
   },
