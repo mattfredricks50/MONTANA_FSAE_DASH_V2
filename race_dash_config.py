@@ -77,6 +77,13 @@ DEFAULT_CONFIG = {
         'event': 'Endurance',
     },
 
+    # ── Update / Flashing ──────────────────────────────────
+    'update': {
+        'git_repo': 'https://github.com/mattfredricks50/MONTANA_FSAE_DASH_V2.git',
+        'git_branch': 'main',
+        'build_firmware': True,   # True = pio build on Pi, False = use prebuilt firmware.bin
+    },
+
     # ── Enabled Screens ──────────────────────────────────────
     # List of screen IDs to show in swipe rotation.
     # Available: lap_timer, main_gauge, drag, strip, gps, diagnostics, warnings

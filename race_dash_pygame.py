@@ -21,6 +21,7 @@ from race_dash_core import SignalBuffer, CANThread
 from race_dash_config import (config, SETTINGS_PAGES, SETTING_CHOICES,
     convert_speed, convert_temp, convert_pressure,
     speed_label, temp_label, pressure_label)
+from race_dash_updater import Updater
 
 
 # ============================================================
@@ -1591,12 +1592,13 @@ class SettingsScreen:
 
     def __init__(self, app=None):
         self.app = app  # Reference to app for rebuild_screens
-        self.page_names = list(SETTINGS_PAGES.keys()) + ['Screens']
+        self.page_names = list(SETTINGS_PAGES.keys()) + ['Screens', 'Update']
         self.current_page = 0
         self.selected_row = 0
         self.scroll_offset = 0  # Scroll for pages with many rows
         self.dirty = False
         self.touch_regions = []
+        self.updater = Updater()
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -1648,6 +1650,8 @@ class SettingsScreen:
     def _get_row_count(self):
         if self.page_names[self.current_page] == 'Screens':
             return len(SCREEN_REGISTRY)
+        if self.page_names[self.current_page] == 'Update':
+            return 4  # Flash, Reset STM32, Git Pull, Restart
         return len(SETTINGS_PAGES.get(self.page_names[self.current_page], []))
 
     def _handle_action(self, action, data=None):
@@ -1669,6 +1673,17 @@ class SettingsScreen:
             self.dirty = True
             if self.app:
                 self.app.rebuild_screens()
+        elif action == 'flash_stm32':
+            uart_thread = self.app.can_thread if self.app else None
+            self.updater.flash_stm32(uart_thread=uart_thread)
+        elif action == 'reset_stm32':
+            self.updater.reset_stm32_action()
+        elif action == 'git_pull':
+            self.updater.update_pi_software()
+        elif action == 'restart_app':
+            if self.app:
+                self.app.shutdown()
+            self.updater.restart_app()
 
     def _toggle_screen(self, screen_id):
         enabled = get_enabled_screen_ids()
@@ -1771,6 +1786,8 @@ class SettingsScreen:
 
         if self.page_names[self.current_page] == 'Screens':
             self._draw_screens_page(surface, fonts, W, H, row_start, row_h, row_gap)
+        elif self.page_names[self.current_page] == 'Update':
+            self._draw_update_page(surface, fonts, W, H, row_start, row_h, row_gap)
         else:
             self._draw_settings_page(surface, fonts, W, H, row_start, row_h, row_gap)
 
@@ -1843,6 +1860,78 @@ class SettingsScreen:
         if drawn_any_below:
             draw_text(surface, fonts, "v more v", W // 2, max_visible_y + 4,
                       size=10, color=config.color('text_dim'), anchor='midtop')
+
+    def _draw_update_page(self, surface, fonts, W, H, row_start, row_h, row_gap):
+        """Draw firmware/software update buttons"""
+        buttons = [
+            ('flash_stm32',  'FLASH STM32',       'Write firmware.bin to STM32 over UART'),
+            ('reset_stm32',  'RESET STM32',        'Reset the STM32 microcontroller'),
+            ('git_pull',     'UPDATE PI SOFTWARE',  'Git pull latest code from GitHub'),
+            ('restart_app',  'RESTART DASH APP',    'Restart to apply updates'),
+        ]
+
+        busy = self.updater.busy
+
+        for i, (action, label, desc) in enumerate(buttons):
+            ry = row_start + i * (row_h + row_gap + 8)
+            is_sel = (i == self.selected_row)
+            bg = config.color('panel_border') if is_sel else config.color('panel')
+            draw_rounded_rect(surface, (12, ry, W - 24, row_h + 4), bg, radius=8)
+
+            # Button label
+            label_color = config.color('text_dim') if busy else config.color('text')
+            draw_text(surface, fonts, label, 24, ry + 10,
+                      size=16, color=label_color, bold=True)
+            # Description
+            draw_text(surface, fonts, desc, 24, ry + 32,
+                      size=11, color=config.color('text_dim'))
+
+            # Action button on right side
+            btn_w, btn_h = 80, row_h - 4
+            btn_x = W - 24 - btn_w
+            if busy:
+                btn_color = config.color('bar_bg')
+                text_color = config.color('text_dim')
+                btn_label = "..."
+            elif action == 'flash_stm32':
+                btn_color = (180, 60, 20)
+                text_color = (255, 255, 255)
+                btn_label = "FLASH"
+            elif action == 'restart_app':
+                btn_color = (20, 100, 180)
+                text_color = (255, 255, 255)
+                btn_label = "RESTART"
+            else:
+                btn_color = config.color('bar_bg')
+                text_color = config.color('accent')
+                btn_label = "RUN"
+
+            draw_rounded_rect(surface, (btn_x, ry + 4, btn_w, btn_h), btn_color, radius=6)
+            draw_text(surface, fonts, btn_label, btn_x + btn_w // 2, ry + row_h // 2,
+                      size=14, color=text_color, bold=True, anchor='center')
+
+            if not busy:
+                self.touch_regions.append({
+                    'rect': pygame.Rect(btn_x, ry + 4, btn_w, btn_h),
+                    'action': action
+                })
+
+        # Status bar at bottom
+        status_y = row_start + len(buttons) * (row_h + row_gap + 8) + 16
+        draw_rounded_rect(surface, (12, status_y, W - 24, 44), config.color('panel'), radius=8)
+        status_color = config.color('warning_red') if 'ERROR' in self.updater.status else \
+                       config.color('best_green') if 'OK' in self.updater.status or \
+                       'complete' in self.updater.status or 'Updated' in self.updater.status or \
+                       'running' in self.updater.status else config.color('text')
+        draw_text(surface, fonts, self.updater.status, W // 2, status_y + 22,
+                  size=15, color=status_color, bold=True, anchor='center')
+
+        # Spinning indicator when busy
+        if busy:
+            spinner = ['|', '/', '-', '\\']
+            spin_char = spinner[int(time.time() * 4) % 4]
+            draw_text(surface, fonts, spin_char, W - 40, status_y + 22,
+                      size=18, color=config.color('accent'), bold=True, anchor='center')
 
     def _draw_settings_page(self, surface, fonts, W, H, row_start, row_h, row_gap):
         """Draw normal settings rows"""
@@ -2047,6 +2136,7 @@ class RaceDashApp:
         print("Shutting down...")
         self.can_thread.stop()
         self.can_thread.join(timeout=0.5)
+        self.settings_screen.updater.cleanup()
         if self.btn_available:
             self.GPIO.cleanup()
         pygame.quit()
