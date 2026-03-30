@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
         'fullscreen': False,      # True for Pi (requires restart)
         'title': 'Race Dash',
         'brightness': 100,        # 0-100, Pi backlight only
+        'touch_enabled': True,    # False = ignore touchscreen (use button/keys only)
     },
 
     # ── Engine / RPM ─────────────────────────────────────────
@@ -273,10 +274,11 @@ SETTINGS_PAGES = {
         ('warnings', 'oil_critical',     'Oil Crit (psi)',   'int', 5,   40,  5),
     ],
     'Display': [
-        ('screen',   'brightness',  'Brightness %',    'int',  10, 100, 10),
-        ('units',    'speed',       'Speed Unit',       'choice', 0, 0, 0),
-        ('units',    'temp',        'Temp Unit',        'choice', 0, 0, 0),
-        ('units',    'pressure',    'Pressure Unit',    'choice', 0, 0, 0),
+        ('screen',   'brightness',     'Brightness %',    'int',  10, 100, 10),
+        ('screen',   'touch_enabled',  'Touchscreen',     'bool', 0, 0, 0),
+        ('units',    'speed',          'Speed Unit',       'choice', 0, 0, 0),
+        ('units',    'temp',           'Temp Unit',        'choice', 0, 0, 0),
+        ('units',    'pressure',       'Pressure Unit',    'choice', 0, 0, 0),
     ],
     'Data': [
         ('data',     'simulate',    'Simulate Data',   'bool', 0, 0, 0),

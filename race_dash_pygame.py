@@ -2078,9 +2078,18 @@ class RaceDashApp:
                     self.current_screen = (self.current_screen + 1) % len(self.active_screens)
             self.btn_last_state = state
 
+        touch_on = config.get('screen', 'touch_enabled')
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+                continue
+
+            # Skip all mouse/touch events when touchscreen is disabled
+            # (keyboard and GPIO button still work)
+            if not touch_on and event.type in (
+                    pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                    pygame.MOUSEMOTION, pygame.MOUSEWHEEL):
                 continue
 
             # Settings screen consumes its own events
@@ -2128,6 +2137,7 @@ class RaceDashApp:
             self.active_screens[self.current_screen].draw(
                 self.screen, data, self.fonts,
                 page_idx=self.current_screen, page_total=total)
+
             pygame.display.flip()
             self.clock.tick(config.get('screen', 'fps'))
         self.shutdown()

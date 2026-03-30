@@ -30,6 +30,10 @@ class SignalBuffer:
             'accel_z': 0.0,
             'gear': 0,
             'clutch': 0,
+            'temp1': 0.0,
+            'temp2': 0.0,
+            'temp3': 0.0,
+            'temp4': 0.0,
             'timestamp': 0
         }
         # Optional: store history for each signal
@@ -89,7 +93,8 @@ class UARTThread(threading.Thread):
         'coolant_temp', 'oil_pressure',
         'lat', 'lon', 'gps_speed', 'gps_satellites',
         'accel_x', 'accel_y', 'accel_z',
-        'gear', 'clutch'
+        'gear', 'clutch',
+        'temp1', 'temp2', 'temp3', 'temp4'
     ]
     # Which fields are integers (rest are float)
     INT_FIELDS = {'rpm', 'speed', 'throttle', 'brake',
@@ -291,11 +296,19 @@ class UARTThread(threading.Thread):
             sim_lat = 40.7128 + 0.001 * _m.sin(track_t)
             sim_lon = -74.0060 + 0.0015 * _m.sin(track_t * 2)
 
+            # Sim thermocouples (exhaust-like temps that vary with RPM)
+            rpm_frac = rpm / 13500.0
+            t1 = 400 + rpm_frac * 800 + random.randint(-10, 10)
+            t2 = 380 + rpm_frac * 820 + random.randint(-10, 10)
+            t3 = 410 + rpm_frac * 790 + random.randint(-10, 10)
+            t4 = 390 + rpm_frac * 810 + random.randint(-10, 10)
+
             csv_line = (f"{int(rpm)},{speed},{throttle},{brake},"
                        f"{random.randint(180, 210)},{random.randint(40, 65)},"
                        f"{sim_lat:.6f},{sim_lon:.6f},{speed * 0.95:.1f},8,"
                        f"{ax:.2f},{ay:.2f},{az:.2f},"
-                       f"{gear_display},{clutch}")
+                       f"{gear_display},{clutch},"
+                       f"{t1:.1f},{t2:.1f},{t3:.1f},{t4:.1f}")
             
             self._parse_csv_line(csv_line)
             self.stop_event.wait(0.04)  # 25Hz

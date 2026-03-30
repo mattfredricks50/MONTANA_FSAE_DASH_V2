@@ -272,7 +272,7 @@ MPU AD0 ────→ GND         (sets I2C address to 0x68)
 ### 5.4 SD Card Module
 
 ```
-SD VCC  ────→ STM32 3.3V   (USE 3.3V MODULE — not 5V!)
+SD VCC  ────→ STM32 5V   (USE 3.3V MODULE — not 5V!) we did not
 SD GND  ────→ STM32 GND
 SD SCK  ────→ STM32 PA5    (SPI1 SCK)
 SD MISO ────→ STM32 PA6    (SPI1 MISO)

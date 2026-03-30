@@ -5,7 +5,8 @@
     "fps": 30,
     "fullscreen": false,
     "title": "Race Dash",
-    "brightness": 100
+    "brightness": 100,
+    "touch_enabled": true
   },
   "engine": {
     "max_rpm": 13500,
@@ -52,13 +53,9 @@
     "enabled": [
       "lap_timer",
       "gforce",
-      "main_gauge",
-      "drag",
-      "strip",
-      "gps",
-      "diagnostics",
       "c4_corvette",
-      "classic"
+      "classic",
+      "diagnostics"
     ]
   },
   "colors": {

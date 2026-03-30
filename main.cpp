@@ -106,6 +106,13 @@
 // I2C1 - MPU-6050 IMU (PB6=SCL, PB7=SDA)
 #define MPU6050_ADDR    0x68    // AD0 pin to GND
 
+// MCP9600 K-type thermocouple breakouts (I2C, same bus as MPU-6050)
+// ADDR pin sets address: GND=0x60, VCC=0x67, or resistor divider
+#define MCP9600_COUNT       4
+const uint8_t MCP9600_ADDR[MCP9600_COUNT] = {0x60, 0x61, 0x62, 0x63};
+#define MCP9600_REG_HOT_JUNCTION  0x00   // 2 bytes, signed, 0.0625°C/LSB
+#define MCP9600_REG_DEVICE_ID     0x20   // Should read 0x40 for MCP9600
+
 // Clutch switch (digital input)
 #define CLUTCH_PIN      PB8     // Pull LOW = clutch engaged (closed switch to GND)
 
@@ -270,6 +277,12 @@ struct SensorData {
     float accel_y_g;            // Longitudinal (positive = forward/accel)
     float accel_z_g;            // Vertical (positive = up, ~1.0 at rest)
 
+    // K-type thermocouples (MCP9600) — in °F
+    float temp1_f;              // Thermocouple 1 (0x60)
+    float temp2_f;              // Thermocouple 2 (0x61)
+    float temp3_f;              // Thermocouple 3 (0x62)
+    float temp4_f;              // Thermocouple 4 (0x63)
+
     // Timing
     uint32_t timestamp_ms;
 };
@@ -310,9 +323,11 @@ void init_sd();
 void init_can();
 void init_gps();
 void init_nrf();
+void init_mcp9600();
 void read_can();
 void read_gps();
 void read_analog();
+void read_mcp9600();
 void update_sim_data();
 void init_vss();
 void update_speed_from_vss();
@@ -366,6 +381,9 @@ void setup() {
     // IMU (always init - useful even in sim for bench vibration testing)
     init_imu();
 
+    // K-type thermocouples (always init - useful in sim for wiring verification)
+    init_mcp9600();
+
     // Precompute RPM-per-MPH table from VSS calibration
     recalc_drivetrain();
 
@@ -375,7 +393,7 @@ void setup() {
     }
 
     // Send CSV header so Pi knows the format
-    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH");
+    PI_SERIAL.println("# CSV: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH,T1,T2,T3,T4");
 
     digitalWrite(LED_PIN, HIGH);    // LED off - setup complete
     PI_SERIAL.println("# Ready");
@@ -398,6 +416,7 @@ void loop() {
         read_can();                 // Non-blocking CAN poll
         read_analog();              // Fast ADC reads
         read_imu();                 // Accelerometer (I2C, ~0.5ms)
+        read_mcp9600();             // 4x thermocouple (I2C, ~2ms total)
         read_clutch();              // Clutch switch (digital, instant)
         update_speed_from_vss();    // Convert pulse period to mph
         calculate_gear();           // Gear from RPM + wheel speed
@@ -531,6 +550,13 @@ void update_sim_data() {
     current_data.accel_x_g = sin(now / 2000.0f) * spd_frac * 1.5f;
     current_data.accel_y_g = sim_accel && !current_data.clutch_in ? 0.5f : (!sim_accel && !current_data.clutch_in ? -0.6f : 0.0f);
     current_data.accel_z_g = 1.0f + sin(now / 500.0f) * 0.05f;
+
+    // Sim thermocouples (exhaust-like temps that vary with RPM)
+    float rpm_frac = current_data.rpm / 13500.0f;
+    current_data.temp1_f = 400 + rpm_frac * 800 + random(-10, 10);  // ~400-1200°F
+    current_data.temp2_f = 380 + rpm_frac * 820 + random(-10, 10);
+    current_data.temp3_f = 410 + rpm_frac * 790 + random(-10, 10);
+    current_data.temp4_f = 390 + rpm_frac * 810 + random(-10, 10);
 }
 
 // ============================================================
@@ -692,6 +718,95 @@ void read_imu() {
         current_data.accel_x_g = ax_raw / 8192.0f;
         current_data.accel_y_g = ay_raw / 8192.0f;
         current_data.accel_z_g = az_raw / 8192.0f;
+    }
+}
+
+// ============================================================
+// K-TYPE THERMOCOUPLES (MCP9600 x4)
+// ============================================================
+// All 4 MCP9600 breakouts share I2C1 (PB6/PB7) with the MPU-6050.
+// Each board needs a unique address set by the ADDR pin:
+//   ADDR → GND = 0x60,  ADDR → VCC = 0x67
+//   Resistor dividers give 0x61-0x66 (see MCP9600 datasheet Table 3-4)
+//
+// Wiring (same for each breakout):
+//   VCC → 3.3V,  GND → GND,  SCL → PB6,  SDA → PB7
+//
+// The hot junction register (0x00) returns a signed 16-bit value
+// in °C with 0.0625°C resolution. We convert to °F for consistency.
+
+bool mcp9600_ok[MCP9600_COUNT] = {false, false, false, false};
+
+void init_mcp9600() {
+    // Wire.begin() already called in init_imu()
+    for (uint8_t i = 0; i < MCP9600_COUNT; i++) {
+        // Read device ID register (0x20) — should return 0x40 for MCP9600
+        Wire.beginTransmission(MCP9600_ADDR[i]);
+        Wire.write(MCP9600_REG_DEVICE_ID);
+        if (Wire.endTransmission(false) != 0) {
+            PI_SERIAL.print("# Temp");
+            PI_SERIAL.print(i + 1);
+            PI_SERIAL.print(" (0x");
+            PI_SERIAL.print(MCP9600_ADDR[i], HEX);
+            PI_SERIAL.println(") not found");
+            continue;
+        }
+
+        Wire.requestFrom(MCP9600_ADDR[i], (uint8_t)2);
+        if (Wire.available() >= 2) {
+            uint8_t dev_id = Wire.read();
+            Wire.read();  // revision byte, discard
+            if ((dev_id & 0xFC) == 0x40) {  // MCP9600 family
+                mcp9600_ok[i] = true;
+                PI_SERIAL.print("# Temp");
+                PI_SERIAL.print(i + 1);
+                PI_SERIAL.print(" MCP9600 OK (0x");
+                PI_SERIAL.print(MCP9600_ADDR[i], HEX);
+                PI_SERIAL.println(")");
+            } else {
+                PI_SERIAL.print("# Temp");
+                PI_SERIAL.print(i + 1);
+                PI_SERIAL.print(" unknown ID: 0x");
+                PI_SERIAL.println(dev_id, HEX);
+            }
+        }
+
+        // Configure: K-type thermocouple, 18-bit resolution (default)
+        // Register 0x05 = Thermocouple Sensor Config
+        // 0x00 = Type K, filter coefficient 0 (fastest)
+        Wire.beginTransmission(MCP9600_ADDR[i]);
+        Wire.write(0x05);
+        Wire.write(0x00);  // Type K, filter off
+        Wire.endTransmission(true);
+
+        // Register 0x06 = Device Config
+        // 0x00 = Normal mode, all defaults
+        Wire.beginTransmission(MCP9600_ADDR[i]);
+        Wire.write(0x06);
+        Wire.write(0x00);
+        Wire.endTransmission(true);
+    }
+}
+
+void read_mcp9600() {
+    float *temps[MCP9600_COUNT] = {
+        &current_data.temp1_f, &current_data.temp2_f,
+        &current_data.temp3_f, &current_data.temp4_f
+    };
+
+    for (uint8_t i = 0; i < MCP9600_COUNT; i++) {
+        if (!mcp9600_ok[i]) continue;
+
+        Wire.beginTransmission(MCP9600_ADDR[i]);
+        Wire.write(MCP9600_REG_HOT_JUNCTION);
+        if (Wire.endTransmission(false) != 0) continue;
+
+        Wire.requestFrom(MCP9600_ADDR[i], (uint8_t)2);
+        if (Wire.available() >= 2) {
+            int16_t raw = (Wire.read() << 8) | Wire.read();
+            float temp_c = raw * 0.0625f;
+            *temps[i] = temp_c * 9.0f / 5.0f + 32.0f;  // °C → °F
+        }
     }
 }
 
@@ -893,7 +1008,11 @@ void log_to_sd() {
     log_file.print(d->accel_y_g, 3);    log_file.print(',');
     log_file.print(d->accel_z_g, 3);    log_file.print(',');
     log_file.print(d->gear);            log_file.print(',');
-    log_file.println(d->clutch_in ? 1 : 0);
+    log_file.print(d->clutch_in ? 1 : 0); log_file.print(',');
+    log_file.print(d->temp1_f, 1);     log_file.print(',');
+    log_file.print(d->temp2_f, 1);     log_file.print(',');
+    log_file.print(d->temp3_f, 1);     log_file.print(',');
+    log_file.println(d->temp4_f, 1);
 }
 
 // ============================================================
@@ -904,7 +1023,7 @@ void send_to_pi() {
     SensorData *d = &current_data;
 
     // Lighter CSV for display — Pi only needs these for the dash
-    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH
+    // Format: RPM,SPEED,THROTTLE,BRAKE,CLT,OIL,LAT,LON,GPS_SPD,GPS_SATS,AX,AY,AZ,GEAR,CLUTCH,T1,T2,T3,T4
     PI_SERIAL.print(d->rpm);             PI_SERIAL.print(',');
     PI_SERIAL.print(d->speed_mph);       PI_SERIAL.print(',');
     PI_SERIAL.print(d->throttle_pct);    PI_SERIAL.print(',');
@@ -919,7 +1038,11 @@ void send_to_pi() {
     PI_SERIAL.print(d->accel_y_g, 2);   PI_SERIAL.print(',');
     PI_SERIAL.print(d->accel_z_g, 2);   PI_SERIAL.print(',');
     PI_SERIAL.print(d->gear);           PI_SERIAL.print(',');
-    PI_SERIAL.println(d->clutch_in ? 1 : 0);
+    PI_SERIAL.print(d->clutch_in ? 1 : 0); PI_SERIAL.print(',');
+    PI_SERIAL.print(d->temp1_f, 1);     PI_SERIAL.print(',');
+    PI_SERIAL.print(d->temp2_f, 1);     PI_SERIAL.print(',');
+    PI_SERIAL.print(d->temp3_f, 1);     PI_SERIAL.print(',');
+    PI_SERIAL.println(d->temp4_f, 1);
 }
 
 // ============================================================
