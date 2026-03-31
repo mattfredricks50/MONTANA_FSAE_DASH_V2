@@ -1616,8 +1616,29 @@ class SettingsScreen:
             return True
 
         if event.type == pygame.KEYDOWN:
+            mods = pygame.key.get_mods()
             max_rows = self._get_row_count()
-            if event.key == pygame.K_UP:
+
+            # ── Page navigation: LEFT/RIGHT arrows switch tabs ──
+            if event.key == pygame.K_LEFT and (mods & pygame.KMOD_SHIFT):
+                self.current_page = (self.current_page - 1) % len(self.page_names)
+                self.selected_row = 0
+                self.scroll_offset = 0
+                return True
+            elif event.key == pygame.K_RIGHT and (mods & pygame.KMOD_SHIFT):
+                self.current_page = (self.current_page + 1) % len(self.page_names)
+                self.selected_row = 0
+                self.scroll_offset = 0
+                return True
+            elif event.key == pygame.K_TAB:
+                direction = -1 if (mods & pygame.KMOD_SHIFT) else 1
+                self.current_page = (self.current_page + direction) % len(self.page_names)
+                self.selected_row = 0
+                self.scroll_offset = 0
+                return True
+
+            # ── Row navigation: UP/DOWN ──
+            elif event.key == pygame.K_UP:
                 self.selected_row = (self.selected_row - 1) % max_rows
                 self._ensure_visible()
                 return True
@@ -1625,17 +1646,33 @@ class SettingsScreen:
                 self.selected_row = (self.selected_row + 1) % max_rows
                 self._ensure_visible()
                 return True
-            elif event.key == pygame.K_RETURN:
+
+            # ── Value adjust: LEFT/RIGHT or RETURN/BACKSPACE ──
+            elif event.key == pygame.K_RIGHT:
                 self._adjust_current(1)
+                return True
+            elif event.key == pygame.K_LEFT:
+                self._adjust_current(-1)
+                return True
+            elif event.key == pygame.K_RETURN:
+                self._activate_current()
                 return True
             elif event.key == pygame.K_BACKSPACE:
                 self._adjust_current(-1)
                 return True
-            elif event.key == pygame.K_TAB:
-                self.current_page = (self.current_page + 1) % len(self.page_names)
-                self.selected_row = 0
-                self.scroll_offset = 0
+
+            # ── Quick actions ──
+            elif event.key == pygame.K_s and (mods & pygame.KMOD_CTRL):
+                config.save()
+                self.dirty = False
                 return True
+
+            # ── Exit settings: Q goes back to dash ──
+            elif event.key == pygame.K_q:
+                if self.app:
+                    self.app.current_screen = 0
+                return True
+
         return False
 
     def _ensure_visible(self):
@@ -1697,12 +1734,28 @@ class SettingsScreen:
         if self.app:
             self.app.rebuild_screens()
 
-    def _adjust_current(self, direction):
-        if self.page_names[self.current_page] == 'Screens':
+    def _activate_current(self):
+        """ENTER key — toggle/activate the selected row."""
+        page = self.page_names[self.current_page]
+        if page == 'Screens':
             if self.selected_row < len(SCREEN_REGISTRY):
                 self._toggle_screen(SCREEN_REGISTRY[self.selected_row][0])
+        elif page == 'Update':
+            actions = ['flash_stm32', 'reset_stm32', 'git_pull', 'restart_app']
+            if self.selected_row < len(actions):
+                self._handle_action(actions[self.selected_row])
         else:
-            items = SETTINGS_PAGES.get(self.page_names[self.current_page], [])
+            self._adjust_current(1)
+
+    def _adjust_current(self, direction):
+        page = self.page_names[self.current_page]
+        if page == 'Screens':
+            if self.selected_row < len(SCREEN_REGISTRY):
+                self._toggle_screen(SCREEN_REGISTRY[self.selected_row][0])
+        elif page == 'Update':
+            pass  # Update buttons don't have inc/dec, use ENTER
+        else:
+            items = SETTINGS_PAGES.get(page, [])
             if self.selected_row < len(items):
                 self._adjust_value(self.selected_row, direction)
 

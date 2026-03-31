@@ -54,8 +54,8 @@
       "lap_timer",
       "gforce",
       "c4_corvette",
-      "classic",
-      "diagnostics"
+      "diagnostics",
+      "warnings"
     ]
   },
   "colors": {
