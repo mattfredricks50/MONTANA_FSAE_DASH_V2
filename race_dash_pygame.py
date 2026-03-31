@@ -1990,14 +1990,33 @@ class SettingsScreen:
 
 class RaceDashApp:
     def __init__(self):
-        pygame.init()
-
         sc = config['screen']
         flags = 0
-        if sc['fullscreen']:
+
+        if sc['fullscreen'] and os.environ.get('DISPLAY') is None:
+            # No X server — try video drivers in order of preference
+            # kmsdrm is fastest but needs EGL; fbcon is the fallback
             flags = pygame.FULLSCREEN
-            if os.environ.get('DISPLAY') is None:
-                os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
+            for driver in ['kmsdrm', 'fbcon', 'directfb', 'svgalib']:
+                os.environ['SDL_VIDEODRIVER'] = driver
+                try:
+                    pygame.display.init()
+                    print(f"# Video driver: {driver}")
+                    break
+                except pygame.error:
+                    pygame.display.quit()
+                    continue
+            else:
+                # All failed, let SDL pick
+                os.environ.pop('SDL_VIDEODRIVER', None)
+                pygame.display.init()
+                print("# Video driver: SDL default")
+            # Init remaining pygame subsystems (audio, events, etc.)
+            pygame.init()
+        else:
+            if sc['fullscreen']:
+                flags = pygame.FULLSCREEN
+            pygame.init()
 
         self.screen = pygame.display.set_mode((sc['width'], sc['height']), flags)
         pygame.display.set_caption(sc['title'])

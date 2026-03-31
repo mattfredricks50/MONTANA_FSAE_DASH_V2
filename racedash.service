@@ -1,0 +1,21 @@
+[Unit]
+Description=FSAE Race Dashboard
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/dash
+Environment=PYTHONUNBUFFERED=1
+Environment=SDL_NOMOUSE=1
+ExecStartPre=/bin/sleep 2
+ExecStart=/home/pi/dash/start_dash.sh
+Restart=on-failure
+RestartSec=3
+
+# Give GPIO and video access
+SupplementaryGroups=gpio video input
+
+[Install]
+WantedBy=multi-user.target
