@@ -9,7 +9,7 @@
     "touch_enabled": true
   },
   "engine": {
-    "max_rpm": 13500,
+    "max_rpm": 13000,
     "shift_rpm": 10000,
     "critical_rpm": 11250,
     "redline_rpm": 12500,
@@ -41,7 +41,7 @@
     "uart_baud": 115200
   },
   "driver": {
-    "name": "Default",
+    "name": "Driver 1",
     "event": "Practice"
   },
   "update": {
@@ -51,11 +51,16 @@
   },
   "screens": {
     "enabled": [
-      "lap_timer",
       "gforce",
       "c4_corvette",
       "diagnostics",
-      "warnings"
+      "warnings",
+      "lap_timer",
+      "main_gauge",
+      "drag",
+      "strip",
+      "gps",
+      "classic"
     ]
   },
   "colors": {

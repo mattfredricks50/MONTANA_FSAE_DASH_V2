@@ -9,6 +9,7 @@
             "name": "PlatformIO",
             "includePath": [
                 "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/src",
+                "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",
                 "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/TinyGPSPlus/src",
                 "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/SD/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
@@ -46,13 +47,13 @@
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SubGhz/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/USBDevice/src",
                 "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/VirtIO/src",
-                "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
                     "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/src",
+                    "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",
                     "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/TinyGPSPlus/src",
                     "C:/Users/craft/Documents/FSAE_DASH/MONTANA_FSAE_DASH/.pio/libdeps/stm32_racedash/SD/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SPI/src",
@@ -90,7 +91,6 @@
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/SubGhz/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/USBDevice/src",
                     "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/VirtIO/src",
-                    "C:/Users/craft/.platformio/packages/framework-arduinoststm32/libraries/Wire/src",
                     ""
                 ]
             },
