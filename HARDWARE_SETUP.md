@@ -577,7 +577,7 @@ PA12 ── CAN TX → SN65HVD230 D
 PB0  ── Sim mode jumper (LOW = sim, internal pull-up)
 PB1  ── nRF24 CE
 PB3  ── VSS pulse input (from LM393 comparator, rising edge interrupt)
-PB6  ── I2C1 SCL → MPU-6050 SCL
+PB6  ── I2C1 SCL → MPU-6050 SCL--
 PB7  ── I2C1 SDA → MPU-6050 SDA
 PB8  ── Clutch switch (LOW = clutch in, internal pull-up)
 PB12 ── SPI2 CSN → nRF24 CSN
