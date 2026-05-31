@@ -63,11 +63,11 @@ DEFAULT_CONFIG = {
         'pressure': 'psi',        # 'psi' or 'bar'
     },
 
-    # ── Data Source (UART from STM32) ────────────────────────
+    # ── Data Source (UART from Nano) ─────────────────────────
     'data': {
-        'simulate': True,         # True = fake data for testing
+        'simulate': False,        # True = fake data for testing
         'uart_port': '/dev/ttyAMA0',   # Pi GPIO UART
-        'uart_baud': 115200,
+        'uart_baud': 57600,            # Nano SoftwareSerial TX rate
     },
 
     # ── Driver / Event ───────────────────────────────────────

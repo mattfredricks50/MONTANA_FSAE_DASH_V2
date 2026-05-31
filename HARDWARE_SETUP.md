@@ -1,692 +1,416 @@
-# FSAE Race Dashboard — Hardware Setup Checklist
+# Race Dash — Hardware Setup
 
-> Open this in VS Code and check off items as you go: change `[ ]` to `[x]`
->
-> **Read the whole section before soldering anything.**
+Complete build guide for **Raspberry Pi (display) + Arduino Nano (data acquisition)**.
 
----
-
-## 1. Tools & Supplies You'll Need
-
-- [ ] Soldering iron + solder (fine tip for headers)
-- [ ] Flush cutters, wire strippers
-- [ ] Multimeter (continuity, voltage checks)
-- [ ] Dupont jumper wires (female-to-female, male-to-female)
-- [ ] 22-24 AWG hookup wire (solid core for breadboard, stranded for car)
-- [ ] Breadboard (for bench testing before soldering permanent board)
-- [ ] Micro USB cables (one for Pi power, one for STM32 programming)
-- [ ] MicroSD card (16GB, FAT32 formatted)
-- [ ] HDMI cable (mini HDMI for Pi Zero 2W → your 7" display)
-- [ ] Header pins (if your STM32 board doesn't have them pre-soldered)
-- [ ] Heat shrink tubing or electrical tape
-- [ ] Zip ties / cable management for the car
+The Nano reads engine data from Speeduino (RS232), reads acceleration from an MPU-6050 IMU, and streams a CSV to the Pi at 25 Hz over UART. The Pi runs the pygame dashboard. GPS comes from a phone app uploading to Google Drive — not wired to the Nano.
 
 ---
 
-## 2. Component Inventory
+## 1. Bill of Materials
 
-Verify you have all parts before starting:
+### Required (minimum viable dash)
 
-| # | Component | Check |
-|---|-----------|-------|
-| 1 | STM32F103RCT6 board (Blue Pill+ or equivalent) | [ ] |
-| 2 | Raspberry Pi Zero 2W | [ ] |
-| 3 | 7" 800×480 HDMI LCD display | [ ] |
-| 4 | SN65HVD230 CAN transceiver module | [ ] |
-| 5 | u-blox NEO-6M or NEO-7M GPS module | [ ] |
-| 6 | MPU-6050 breakout board (I2C) | [ ] |
-| 7 | MicroSD card module (SPI, 3.3V) | [ ] |
-| 8 | nRF24L01+PA+LNA module | [ ] |
-| 9 | 5V buck converter (12V car battery → 5V) | [ ] |
-| 10 | Brake pressure sensor (100 PSI, 0.5–4.5V) | [ ] |
-| 11 | Steering angle potentiometer | [ ] |
-| 12 | Clutch switch (normally open, closes to GND) | [ ] |
-| 13 | LM393 comparator DIP-8 (VSS signal conditioning) | [ ] |
-| 14 | MicroSD card (16GB, FAT32) | [ ] |
-| 14 | 120Ω resistor ×2 (CAN termination) | [ ] |
-| 15 | 10KΩ resistor ×2 (voltage divider for 5V sensors) | [ ] |
-| 16 | 20KΩ resistor ×2 (voltage divider for 5V sensors) | [ ] |
+| # | Item | Notes |
+|---|------|-------|
+| 1 | Raspberry Pi (Zero 2W, 3B, 3B+, or 4B) | Any model with 40-pin GPIO + HDMI |
+| 1 | Arduino Nano (ATmega328P) | Genuine or clone — both work |
+| 1 | HDMI display | 5–10" with HDMI input. 800×480 or 1024×600 typical |
+| 1 | Pi power supply | 5V 2.5A min (Pi Zero) or 3A (Pi 3/4) — buck from car 12V |
+| 1 | MicroSD card (16 GB+ Class 10) | For Pi OS |
+| 1 | USB cable | For programming the Nano |
+| 1 | MPU-6050 IMU breakout (3.3V GY-521 or similar) | Acceleration + gyro. Most "3.3V" breakouts include an onboard 3.3V regulator and I2C pull-ups, making them safe to wire directly to a 5V Nano. |
+| 2 | Resistors: 10 KΩ + 20 KΩ | Voltage divider, Nano D7 → Pi GPIO15 |
+| — | Hookup wire, breadboard or perfboard, JST/Dupont connectors | |
+
+### Optional — only if your IMU breakout is "bare" (no onboard regulator/pull-ups)
+
+| Item | When you need it |
+|------|------------------|
+| Bidirectional I2C level shifter (BSS138 module) | Bare MPU-6050 chip on a breakout that exposes the raw 3.3V I/O directly |
+| 2× 4.7 KΩ resistors | I2C pull-ups (only if your breakout doesn't include them — most do) |
+
+### Optional / future
+
+| Item | Purpose |
+|------|---------|
+| Smartphone | GPS + acceleration via Sensor Logger or RaceChrono |
+| 4× MCP9600 + K-type thermocouples | EGT or oil temp |
+| Hall-effect VSS sensor + LM393 comparator | Wheel speed for gear detection |
+| 0.5–4.5V brake pressure sensor | Brake telemetry |
+| MicroSD card module (5V) | On-Nano data logging |
+| 7805 or buck converter (12V → 5V) | Power Nano + Pi from car |
+| Anderson PowerPoles or fused harness | Clean install |
+
+### No longer needed (legacy STM32 build)
+
+- ❌ ST-Link V2 programmer
+- ❌ MCP2515 or SN65HVD230 CAN transceiver
+- ❌ nRF24L01+
+- ❌ STM32F103 board
 
 ---
 
-## 3. Raspberry Pi Zero 2W Setup
+## 2. Pi Setup
 
-Do this first — it takes the longest and doesn't need any other hardware.
+### 2.1 Flash Pi OS
 
-### 3.1 Flash the OS
+Use Raspberry Pi Imager:
+- **OS:** Raspberry Pi OS (Lite is fine — we don't need a desktop)
+- **Settings (gear icon):**
+  - Hostname: `racedash`
+  - Username: `pi`
+  - Enable SSH (use password or key)
+  - Configure WiFi (for first-boot setup; can disable later)
 
-- [ ] Download **Raspberry Pi OS Lite (64-bit)** from https://www.raspberrypi.com/software/
-- [ ] Flash to MicroSD using Raspberry Pi Imager
-  - In the imager settings (gear icon), configure:
-  - [ ] Set hostname: `racedash`
-  - [ ] Enable SSH (password authentication)
-  - [ ] Set username: `pi`, password: (your choice)
-  - [ ] Configure WiFi (your phone hotspot or shop WiFi — needed for setup only)
-  - [ ] Set locale/timezone
-- [ ] Insert MicroSD into Pi, power on, wait ~90 seconds for first boot
-- [ ] SSH in: `ssh pi@racedash.local`
+- [ ] OS flashed
+- [ ] Pi boots, SSH works
 
-### 3.2 System Configuration
+### 2.2 Install Software
 
 ```bash
-# Update everything
 sudo apt update && sudo apt upgrade -y
-
-# Install dependencies
 sudo apt install -y python3-pygame python3-serial git
-
-# Disable serial console (frees /dev/ttyAMA0 for our UART data)
-sudo raspi-config
-#   → Interface Options
-#   → Serial Port
-#   → "Would you like a login shell over serial?" → NO
-#   → "Would you like the serial port hardware enabled?" → YES
-#   → Finish → Reboot
-
-# Verify serial is free after reboot
-ls -la /dev/ttyAMA0
-# Should show the device with no getty process using it
 ```
 
-- [ ] OS flashed and first boot complete
-- [ ] SSH access working
-- [ ] `apt update && upgrade` done
-- [ ] `python3-pygame` and `python3-serial` installed
-- [ ] Serial console disabled, hardware serial enabled
-- [ ] Rebooted after raspi-config changes
+### 2.3 Free Up the Hardware UART
 
-### 3.3 Deploy Dashboard Code
+The Pi's serial console has to be disabled to use `/dev/ttyAMA0` for the Nano data link.
 
 ```bash
-# Create project directory
+sudo raspi-config
+#   Interface Options → Serial Port
+#   "Login shell over serial?"      → NO
+#   "Hardware serial port enabled?" → YES
+#   Finish → Reboot
+
+# After reboot, verify the port is free:
+ls -la /dev/ttyAMA0
+```
+
+- [ ] Serial console disabled, hardware serial enabled
+- [ ] `/dev/ttyAMA0` exists with no getty using it
+
+### 2.4 Deploy Dash Code
+
+```bash
 mkdir -p /home/pi/dash
 cd /home/pi/dash
-
-# Copy the three Python files here (via scp, USB stick, or git):
+# Copy these files (scp / USB / git):
 #   race_dash_config.py
 #   race_dash_core.py
 #   race_dash_pygame.py
+#   race_dash_updater.py
+#   start_dash.sh
+#   racedash.service
 
-# Test that it runs (will start in sim mode with no STM32 connected)
+# Smoke test (will run in sim mode if no Nano connected):
 python3 race_dash_pygame.py
-# You should see the dashboard on the HDMI display
-# Press Escape to quit
+# Should see dashboard on HDMI. Press Q in settings or Escape to quit.
 ```
 
-- [ ] Dashboard files copied to `/home/pi/dash/`
-- [ ] Test run successful (sim mode shows moving gauges)
+- [ ] Code on Pi
+- [ ] Sim-mode dash visible on the display
 
-### 3.4 Auto-Start on Boot
+### 2.5 Auto-Start on Boot
 
 ```bash
-# Edit rc.local to start the dash automatically
-sudo nano /etc/rc.local
-
-# Add this line BEFORE "exit 0":
-cd /home/pi/dash && python3 race_dash_pygame.py &
-
-# Save and exit (Ctrl+O, Enter, Ctrl+X)
+chmod +x /home/pi/dash/start_dash.sh
+sudo cp /home/pi/dash/racedash.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable racedash
+sudo systemctl start racedash
+sudo systemctl status racedash    # check it started
 ```
 
-- [ ] rc.local edited
-- [ ] Verified: reboot and dash appears automatically
+- [ ] systemd service installed
+- [ ] Reboot → dash appears automatically
 
-### 3.5 Boot Speed Optimization (Optional)
+### 2.6 Display Rotation (if needed)
 
+If your display is mounted upside-down in the dash housing:
 ```bash
-# Disable services we don't need on the car
-sudo systemctl disable bluetooth
-sudo systemctl disable hciuart
-sudo systemctl disable avahi-daemon
-sudo systemctl disable triggerhappy
-sudo systemctl disable wpa_supplicant  # ONLY if you won't need WiFi anymore
-
-# Add to /boot/firmware/config.txt:
 sudo nano /boot/firmware/config.txt
-# Add these lines at the bottom:
+# Add this line:
+display_rotate=2     # 0=normal, 1=90°, 2=180°, 3=270°
+```
+
+### 2.7 Faster Boot (optional)
+
+```bash
+sudo systemctl disable bluetooth hciuart avahi-daemon triggerhappy
+# Only if you don't need WiFi at the car:
+sudo systemctl disable wpa_supplicant
+
+# Edit /boot/firmware/config.txt — append:
 boot_delay=0
 disable_splash=1
-dtoverlay=disable-wifi      # Remove this line if you still want WiFi
 dtoverlay=disable-bt
 
-# Add to /boot/firmware/cmdline.txt:
-# Append to the existing single line (don't create a new line):
+# Edit /boot/firmware/cmdline.txt — append to the existing single line:
 quiet fastboot
 ```
 
-- [ ] Unnecessary services disabled
-- [ ] config.txt boot optimizations added
-- [ ] cmdline.txt quiet/fastboot added
-- [ ] Tested: boot to dashboard in ~10-15 seconds
+- [ ] Boot time ≤ 15 seconds to dashboard
 
 ---
 
-## 4. STM32 Development Environment
+## 3. Arduino Nano Setup
 
-Do this on your **laptop/desktop** (not the Pi).
+### 3.1 Install Arduino IDE
 
-### 4.1 Install PlatformIO
+Download from <https://www.arduino.cc/en/software>. Install on your laptop (not the Pi — easier to develop on a real keyboard/screen).
 
-- [ ] Install VS Code: https://code.visualstudio.com/
-- [ ] Install the **PlatformIO IDE** extension from the Extensions marketplace
-- [ ] Restart VS Code after installation
-- [ ] Open the `stm32_firmware/` folder in VS Code
-- [ ] Wait for PlatformIO to download the STM32 toolchain (first time takes a few minutes)
-- [ ] Build: `Ctrl+Alt+B` (or click the checkmark in the bottom toolbar)
-- [ ] Build should succeed with no errors
+### 3.2 Driver for Clone Nanos
 
-### 4.2 First Flash (USB DFU — No Programmer Needed)
+Most cheap Nanos use a **CH340** USB-serial chip. If Windows doesn't detect a COM port when you plug it in, install the CH340 driver from <https://www.wch-ic.com/downloads/CH341SER_EXE.html>.
 
-Before wiring anything, verify the STM32 board works:
+Genuine Arduino Nanos use FTDI and need no driver on modern Windows.
+
+- [ ] COM port appears in Device Manager when Nano is plugged in
+
+### 3.3 Open the Sketch
+
+1. **File → Open** → `dash_nano/dash_nano.ino`
+2. **Tools → Board** → Arduino AVR Boards → **Arduino Nano**
+3. **Tools → Processor** → **ATmega328P**
+   *(if upload fails with `stk500_recv()`, switch to "ATmega328P (Old Bootloader)")*
+4. **Tools → Port** → the COM port from step 3.2
+5. **Sketch → Verify** (Ctrl+R) — should compile with zero errors
+6. **Sketch → Upload** (Ctrl+U)
+
+> ⚠ **Disconnect D0 from Speeduino before uploading.** The USB bootloader uses the same UART. Reconnect after the upload finishes.
+
+### 3.4 Smoke Test
+
+Open the Arduino IDE Serial Monitor at **115200 baud** with the Nano still on USB and Speeduino still disconnected. You should see:
 
 ```
-1. Set the BOOT0 jumper to HIGH (1) on the STM32 board
-2. Plug the STM32's USB into your computer
-3. The board should enumerate as a DFU device
+# Race Dash Nano (minimum) starting
+# CSV: RPM,SPEED,THROTTLE,BRAKE,...
+# No Speeduino response (got 0/65 bytes)
 ```
 
-```bash
-# In VS Code / PlatformIO terminal:
-pio run -t upload --upload-port /dev/ttyUSB0
-# Or on Windows: pio run -t upload --upload-port COM3
+The "no response" message every ~10 seconds confirms the Nano is alive and polling.
 
-# If DFU doesn't work, your board may need the USB pull-up fix:
-# Solder a 1.5KΩ resistor between PA12 and 3.3V
-# (many cheap boards have 10KΩ here instead — wrong value)
-```
-
-- [ ] PlatformIO installed and STM32 toolchain downloaded
-- [ ] Firmware compiles successfully
-- [ ] STM32 board flashed via USB DFU (LED should blink)
-- [ ] Set BOOT0 back to LOW (0) after flashing
+- [ ] Sketch compiles
+- [ ] Sketch uploads
+- [ ] Serial Monitor shows the banner
 
 ---
 
-## 5. Wiring — Bench Test Phase
+## 4. Wiring
 
-**Do all bench wiring on a breadboard first.** Don't solder permanent connections until everything works.
+### 4.1 Power & Ground
 
-**IMPORTANT: The STM32F103 is 3.3V logic. Never connect 5V directly to any STM32 pin.**
-
-### 5.1 STM32 → Pi (UART Data Link)
-
-This is the most important connection — it's how the dash gets data.
+Everything shares one ground. **Tie all GNDs together first**, then worry about signal.
 
 ```
-STM32 PA9  (UART1 TX) ──────→ Pi GPIO15 (RX)
-STM32 GND  ──────────────────→ Pi GND
+Car 12V ──┬── Buck/regulator → 5V ──┬── Pi USB-C / micro-USB
+          │                         └── Nano 5V pin (or just power Nano via USB during dev)
+          │
+          └── Common chassis ground
 
-Optional (not used yet):
-STM32 PA10 (UART1 RX) ←────── Pi GPIO14 (TX)
-
-Pi-controlled flashing (allows firmware updates from the dash settings screen):
-Pi GPIO17 (pin 11) ──────────→ STM32 BOOT0   (HIGH = bootloader mode)
-Pi GPIO27 (pin 13) ──────────→ STM32 NRST    (pulse LOW to reset)
+Pi GND ──┬── Nano GND ──┬── Speeduino GND ──┬── IMU GND
+         │              │                   │
+        ─┴─────────────────────────────────────────  common ground rail
 ```
 
-**No pull-ups needed.** UART idles high, and both devices are 3.3V. BOOT0 and NRST are active-driven by the Pi.
+- [ ] One unbroken ground between Pi, Nano, Speeduino, IMU
 
-- [ ] PA9 → GPIO15 wired
-- [ ] GND → GND wired
-- [ ] GPIO17 → BOOT0 wired
-- [ ] GPIO27 → NRST wired
-- [ ] **TEST:** Power both on. Pi should show data in `python3 -c "import serial; s=serial.Serial('/dev/ttyAMA0', 115200, timeout=1); [print(s.readline()) for _ in range(10)]"`
-  - With PB0 floating (live mode), you'll see `# Ready` then lines of zeros
-  - With PB0 pulled LOW (sim mode), you'll see CSV data streaming
+### 4.2 Nano ↔ Speeduino (RS232 Secondary Serial)
 
-### 5.2 GPS Module (u-blox NEO-6M/7M)
+Speeduino's secondary serial is 5V TTL — direct connect to the Nano's 5V hardware UART, no level shifter needed. **The hardware UART (D0/D1) is dedicated to Speeduino — nothing else shares it.**
 
 ```
-GPS VCC ────→ STM32 3.3V
-GPS GND ────→ STM32 GND
-GPS TX  ────→ STM32 PA3  (UART2 RX)
-GPS RX  ────→ STM32 PA2  (UART2 TX)
+Speeduino 2nd Serial TX ──────────────► Nano D0 (RX)
+Speeduino 2nd Serial RX ◄────────────── Nano D1 (TX)
+Speeduino GND ────────────────────────── common GND
 ```
 
-**No pull-ups needed.** The GPS module has its own pull-ups on the UART lines.
+- [ ] Speeduino TX → Nano D0
+- [ ] Nano D1 → Speeduino RX (NOT also to the Pi)
 
-> **Antenna:** The ceramic patch antenna must face the sky. On a bench, put it near a window. In the car, mount it on top of the bodywork or behind a fiberglass panel (not carbon fiber — it blocks GPS signals).
+### 4.3 Nano ↔ Pi (SoftwareSerial, with Voltage Divider)
 
-- [ ] GPS VCC/GND connected to 3.3V and GND
-- [ ] GPS TX → PA3, GPS RX → PA2
-- [ ] **TEST:** In sim mode off (PB0 floating), watch serial output. After 30-60 seconds outdoors, you should see non-zero lat/lon values in the CSV.
+The Pi link uses a **separate** SoftwareSerial TX pin (D7) so the CSV stream never reaches Speeduino. (If the Pi link shared D1 with Speeduino, every CSV digit would arrive at Speeduino's RX as random ASCII — Speeduino's parser could interpret bytes as commands and trigger unwanted protocol events or flash burns.)
 
-### 5.3 MPU-6050 IMU (Accelerometer/Gyroscope)
-
-```
-MPU VCC ────→ STM32 3.3V
-MPU GND ────→ STM32 GND
-MPU SCL ────→ STM32 PB6  (I2C1 SCL)
-MPU SDA ────→ STM32 PB7  (I2C1 SDA)
-MPU AD0 ────→ GND         (sets I2C address to 0x68)
-```
-
-**Pull-ups: Most MPU-6050 breakout boards have 4.7KΩ pull-ups to VCC on SDA and SCL already.** Check your board — if it has two resistors near the I2C pins, you're good. If not, add **4.7KΩ pull-ups from SDA to 3.3V and SCL to 3.3V**.
-
-> **INT pin:** Leave unconnected. We poll the sensor, we don't use interrupts.
-
-- [ ] MPU wired: VCC, GND, SCL→PB6, SDA→PB7, AD0→GND
-- [ ] Verified pull-ups exist on breakout board (or added 4.7KΩ)
-- [ ] **TEST:** Boot STM32, serial output should show `# IMU MPU-6050 OK`. If it says `# IMU not found on I2C`, check wiring and pull-ups.
-
-### 5.4 SD Card Module
+The Nano TX is 5V; the Pi GPIO max is 3.3V. **A voltage divider is mandatory** — without it you will eventually kill GPIO15 on the Pi.
 
 ```
-SD VCC  ────→ STM32 5V   (USE 3.3V MODULE — not 5V!) we did not
-SD GND  ────→ STM32 GND
-SD SCK  ────→ STM32 PA5    (SPI1 SCK)
-SD MISO ────→ STM32 PA6    (SPI1 MISO)
-SD MOSI ────→ STM32 PA7    (SPI1 MOSI)
-SD CS   ────→ STM32 PA4    (SPI1 CS)
+Nano D7 (SoftwareSerial TX) ─── 10KΩ ──┬─────── Pi GPIO15 (RX, pin 10)
+                                       │
+                                      20KΩ
+                                       │
+                                      GND ──── common GND
+
+Pi GPIO TX (GPIO14) is NOT connected — communication is one-way (Nano → Pi).
 ```
 
-**No pull-ups needed on SPI.** The SD module handles this.
+Output of divider: 5 V × (20 / (10 + 20)) = **3.33 V** ✓
 
-> **WARNING:** Many cheap SD modules are 5V with a voltage regulator. If yours has a regulator and you feed it 3.3V, it won't work — the regulator drops ~1V so the SD card only sees 2.3V. Use a **3.3V native** module (like Adafruit 4682) or bypass the regulator.
+**Baud rate:** 57600 (Pi `race_dash_config.py` → `uart_baud: 57600`, Nano sketch `piSerial.begin(57600)`). They must match.
 
-- [ ] SD module wired (3.3V native module confirmed)
-- [ ] FAT32-formatted MicroSD card inserted
-- [ ] **TEST:** Boot STM32, serial should show `# Logging to: LOG_001.csv`. Power off, pull the SD card, check on a computer — you should see the CSV file with data rows.
+- [ ] 10 KΩ resistor in series with D7
+- [ ] 20 KΩ resistor from divider midpoint to GND
+- [ ] Divider output → Pi GPIO15 (pin 10 on the 40-pin header)
+- [ ] Pi `uart_baud` set to 57600
 
-### 5.5 Clutch Switch
+### 4.4 Nano ↔ MPU-6050 IMU (I2C, direct connect)
 
-```
-Clutch switch wire A ────→ STM32 PB8
-Clutch switch wire B ────→ GND
-```
+The MPU-6050 chip itself is a 3.3V part, but virtually every breakout sold as "MPU-6050" or "GY-521" includes:
 
-**Pull-up: PB8 uses the internal pull-up (configured in firmware).** No external resistor needed. When the clutch lever is pulled, the switch closes, PB8 goes LOW, firmware reads `clutch_in = true`.
+- An **onboard 3.3V LDO regulator** — so the VCC pin safely accepts either 3.3V or 5V
+- **Onboard 4.7 KΩ I2C pull-up resistors** wired to the breakout's 3.3V rail (after the regulator)
 
-> If your switch is normally closed (closes when clutch is released), swap the logic in firmware: change `current_data.clutch_in = (digitalRead(CLUTCH_PIN) == LOW)` to `== HIGH`.
+These two features make the breakout safe to wire directly to a 5V Nano. I2C is open-drain, so the bus HIGH level is set by the breakout's 3.3V pull-ups (which dominate over the Nano's weak ~30 KΩ internal pull-ups). The Nano's input HIGH threshold is ~3 V, so it reliably reads the 3.3V signal as a logical 1. **No external level shifter or pull-up resistors needed.**
 
-- [ ] Clutch switch wired: one terminal to PB8, other to GND
-- [ ] **TEST:** Watch serial output. Gear should show `0` (displays as N) when you short PB8 to GND (simulating clutch pull). Should show `1-6` when PB8 is floating and RPM/speed are present.
-
-### 5.6 Simulation Mode Jumper
+#### Standard wiring (GY-521 / "3.3V MPU-6050" breakout)
 
 ```
-To enable sim mode (for bench testing without the car):
-PB0 ────→ GND      (jumper wire or switch)
-
-For live mode (real sensors):
-PB0 ────→ floating  (internal pull-up holds it HIGH)
+MPU-6050 breakout            Nano
+────────────────────────────────────────
+VCC  ──────────────────────► 5V    (uses onboard 3.3V regulator)
+GND  ──────────────────────► GND
+SCL  ──────────────────────► A5    (I2C SCL)
+SDA  ──────────────────────► A4    (I2C SDA)
+AD0  ──────────────────────► GND   (sets I2C address to 0x68 — most breakouts already tie this internally)
+INT  ──────────────────────► n/c   (not used)
+XDA, XCL, FSYNC ───────────► n/c   (auxiliary I2C, not used)
 ```
 
-**Pull-up: Internal (configured in firmware).** No external resistor needed.
+That's all four wires. No resistors, no level shifter, no extra parts.
 
-- [ ] Sim jumper accessible on the board
-- [ ] **TEST:** Boot with PB0→GND, serial shows `# Mode: SIMULATION` and data sweeps through gears 1→6. Boot with PB0 floating, shows `# Mode: LIVE SENSORS`.
+- [ ] MPU-6050 VCC → Nano 5V (or 3.3V — both work)
+- [ ] MPU-6050 GND → Nano GND
+- [ ] MPU-6050 SCL → Nano A5
+- [ ] MPU-6050 SDA → Nano A4
+- [ ] AD0 grounded (check breakout — usually wired internally)
 
-### 5.7 CAN Bus (Speeduino Dropbear v2)
+#### When you DO need a level shifter
 
-```
-STM32 PA11 ────→ SN65HVD230 "R" (RX/receive)
-STM32 PA12 ────→ SN65HVD230 "D" (TX/transmit)
-STM32 3.3V ────→ SN65HVD230 VCC
-STM32 GND  ────→ SN65HVD230 GND
+Skip this unless your breakout is unusual:
 
-SN65HVD230 CANH ────→ Speeduino CAN_H
-SN65HVD230 CANL ────→ Speeduino CAN_L
+- A "bare" breakout that exposes raw 3.3V I/O with **no onboard regulator** (rare — typically these are labeled "3.3V only" and have only 4 pins). Apply 3.3V to VCC and put a BSS138-type level shifter between the Nano's A4/A5 and the breakout's SDA/SCL.
+- You measured the breakout's pull-ups and they go to a different rail than 3.3V (very rare).
 
-120Ω termination resistor across CANH and CANL at EACH end of the bus
-(one at the Speeduino, one at the transceiver module)
-```
+If you're not sure: power your breakout from 3.3V and direct-connect SDA/SCL. If the IMU isn't detected, **then** add a level shifter.
 
-**Pull-ups: None needed.** The CAN transceiver handles bus levels. The SN65HVD230 "Rs" (slope control) pin should be tied to GND for maximum speed.
+> The current minimum-viable sketch (`dash_nano.ino`) does not yet read the IMU. When you're ready to add it, the I2C wiring above is what the IMU code will expect.
 
-> **NOTE:** CAN decoding is not yet implemented in firmware (marked TODO). The wiring is ready but you won't see real engine data until the eXoCAN code is added. All other sensors work independently of CAN.
-
-- [ ] CAN transceiver wired to PA11/PA12
-- [ ] CANH/CANL connected to Speeduino with twisted pair wire
-- [ ] 120Ω termination at both ends
-- [ ] Rs pin on SN65HVD230 tied to GND
-
-### 5.8 Vehicle Speed Sensor (VSS) — Reluctor Pickup
-
-The CBR 600RR speed sensor is a **passive reluctor** (magnetic pickup) that reads 28 teeth on the countershaft 3rd gear inside the engine case. It outputs a low-voltage AC sine wave whose frequency is proportional to speed. **This signal cannot be connected directly to the STM32** — it needs a comparator circuit to convert it to a clean 3.3V digital square wave.
-
-**Signal conditioning circuit (LM393 comparator):**
+### 4.5 Pinout Summary (quick reference)
 
 ```
-                            3.3V
-                             │
-                            4.7KΩ  (pull-up on output)
-                             │
-VSS reluctor wire A ──┬── LM393 IN+ (pin 3)     LM393 OUT (pin 1) ──→ STM32 PB3
-                      │                                │
-                     10KΩ (bias to midpoint)           │
-                      │                          (open collector,
-VSS reluctor wire B ──┴── LM393 IN- (pin 2)      pulled high by 4.7K)
-                      │
-                     10KΩ
-                      │
-                     GND
+Arduino Nano               Function                       Goes to
+────────────────────────────────────────────────────────────────────────────────
+D0  (RX)                   Hardware UART RX               Speeduino 2nd Serial TX  (only)
+D1  (TX)                   Hardware UART TX               Speeduino 2nd Serial RX  (only)
+D7  (SoftwareSerial TX)    Pi data link                   10K/20K divider → Pi GPIO15
+A4  (SDA)                  I2C data                       MPU-6050 SDA  (direct)
+A5  (SCL)                  I2C clock                      MPU-6050 SCL  (direct)
+5V                         5V out                         Speeduino I/O ref, MPU-6050 VCC (via onboard regulator)
+3.3V                       3.3V out                       (unused for this build)
+GND                        Ground                         Everything
 
-LM393 power:
-  VCC (pin 8) ──→ 3.3V
-  GND (pin 4) ──→ GND
-
-Optional: 100pF cap from IN+ to GND (noise filter on long wire runs)
-Optional: 100KΩ feedback from OUT to IN+ (hysteresis, prevents chatter)
+Raspberry Pi (40-pin GPIO header)
+────────────────────────────────────────────────────────────────────────────────
+Pin 6   GND                Common ground
+Pin 10  GPIO15 (RX, UART)  ← from Nano D1 voltage divider midpoint
+Pin 8   GPIO14 (TX, UART)  Not connected
 ```
 
-**How it works:** The reluctor outputs a sine wave centered around 0V. The two 10KΩ resistors bias the negative input to a virtual ground (midpoint). When the sine wave swings positive (tooth passing), the comparator output goes LOW; when negative (gap), it goes HIGH. The 4.7KΩ pull-up creates a clean 3.3V square wave. The STM32 counts rising edges via interrupt.
+### 4.6 Wiring Checklist
 
-**Alternative — if the Speeduino already conditions the VSS signal:** If the Speeduino's wiring harness provides a clean 5V square wave VSS output, you can skip the LM393 and just use a simple voltage divider (10KΩ + 20KΩ) to step it down to 3.3V for PB3.
-
-> **Parts needed:** LM393 comparator (DIP-8, ~$0.50), 2× 10KΩ, 1× 4.7KΩ, optional 100pF cap and 100KΩ for hysteresis.
-
-- [ ] LM393 comparator circuit built on breadboard
-- [ ] Verify output with multimeter or oscilloscope: 0V/3.3V square wave when spinning the wheel
-- [ ] Comparator output → STM32 PB3
-- [ ] **TEST:** Spin the front wheel by hand. Watch serial output — `speed_mph` should show a low value (1-5 mph). Faster spin = higher reading. Stopped wheel = 0.
-
-### 5.9 Analog Sensors (Brake Pressure / Steering Angle)
-
-**5V sensors need a voltage divider to bring the signal down to 3.3V max for the STM32 ADC.**
-
-```
-Voltage divider for each 5V sensor:
-
-Sensor output ──┬── 10KΩ ──→ STM32 analog pin (PA0 or PA1)
-                │
-               20KΩ
-                │
-               GND
-
-This divides by 3: 5V × (20K / (10K+20K)) = 3.33V max at the STM32 pin.
-The ADC reads 0-4095 for 0-3.3V.
-```
-
-```
-Brake pressure sensor (3-wire, 5V):
-  Red   ────→ 5V supply
-  Black ────→ GND
-  White ────→ voltage divider → PA0
-
-Steering angle pot (3-wire, 5V):
-  One end   ────→ 5V supply
-  Other end ────→ GND
-  Wiper     ────→ voltage divider → PA1
-```
-
-- [ ] Voltage dividers built and tested with multimeter (confirm <3.3V at STM32 pin when sensor outputs 5V)
-- [ ] Brake sensor → divider → PA0
-- [ ] Steering pot → divider → PA1
-- [ ] **TEST:** Watch `analog_0_raw` and `analog_1_raw` in the SD log. Should vary 0-4095 as you apply pressure / turn the pot.
-
-### 5.10 nRF24L01+ Telemetry (Wire Now, Enable Later)
-
-```
-nRF VCC  ────→ STM32 3.3V   (⚠ 3.3V ONLY — 5V will destroy it!)
-nRF GND  ────→ STM32 GND
-nRF SCK  ────→ STM32 PB13   (SPI2 SCK)
-nRF MISO ────→ STM32 PB14   (SPI2 MISO)
-nRF MOSI ────→ STM32 PB15   (SPI2 MOSI)
-nRF CSN  ────→ STM32 PB12   (SPI2 CS)
-nRF CE   ────→ STM32 PB1
-nRF IRQ  ────→ not connected (unused)
-```
-
-**⚠ CRITICAL: Add a 10µF electrolytic capacitor across VCC and GND right at the nRF24 module.** The PA+LNA version draws high current spikes during transmit that can brown-out the 3.3V rail and crash the STM32. Solder the cap directly to the module's power pins.
-
-> **NOTE:** nRF24 code is not yet implemented (marked TODO in firmware). Wire it now so it's ready when the software is added. The module will simply be unpowered/idle until then.
-
-- [ ] nRF24 wired to SPI2 pins
-- [ ] 10µF capacitor across VCC/GND at the module
-- [ ] **Confirmed:** VCC is 3.3V, NOT 5V
-
-### 5.11 Screen Cycle Button (Pi GPIO)
-
-A single momentary push button wired directly to the Pi for cycling through screens with gloves on. No STM32 involvement.
-
-```
-Button terminal A ────→ Pi GPIO16 (pin 36)
-Button terminal B ────→ Pi GND    (pin 34 or any GND)
-```
-
-**Pull-up: Internal (configured in software).** No external resistor needed. GPIO16 is held HIGH by the Pi's internal pull-up. Pressing the button pulls it LOW, the software detects the falling edge and advances to the next screen. 200ms debounce is built in.
-
-**Any momentary NO (normally open) push button works.** A waterproof panel-mount button is ideal for the car. If you only have an NC (normally closed) button, just swap the logic in the code: change `if state == False` to `if state == True`.
-
-> **Why GPIO16?** It's on the outer edge of the Pi header (pin 36), easy to solder one wire to. It's not used by UART, I2C, SPI, or any other peripheral. Any free GPIO would work — just change `self.btn_pin` in `race_dash_pygame.py`.
-
-- [ ] Button wired: one terminal to GPIO16 (pin 36), other to GND (pin 34)
-- [ ] **TEST:** Run dashboard, press button — screen should advance. Press again — next screen. Cycles through all enabled screens plus settings.
+- [ ] Common ground between Pi, Nano, Speeduino, IMU
+- [ ] Speeduino TX → Nano D0
+- [ ] Nano D1 → Speeduino RX (and ONLY Speeduino — does NOT also go to the Pi)
+- [ ] Nano D7 → 10K/20K divider → Pi GPIO15
+- [ ] Pi `race_dash_config.py` `uart_baud` = 57600
+- [ ] MPU-6050 VCC → Nano 5V (uses onboard regulator)
+- [ ] MPU-6050 SDA → Nano A4, SCL → Nano A5 (direct, no level shifter)
 
 ---
 
-## 6. Bench Integration Test
+## 5. Phone-Based GPS + Acceleration
 
-With everything wired on the breadboard, run through this full system test:
+To save Nano IO and avoid running GPS antenna wiring to the dash, log GPS + phone IMU on a phone and auto-upload to Google Drive after each session. (The on-board MPU-6050 is still the source of live G-force on the dash itself; the phone is for post-session telemetry.)
 
-### 6.1 Simulation Mode Test
+### Recommended apps
 
-- [ ] Connect PB0 to GND (sim mode)
-- [ ] Power on STM32 and Pi
-- [ ] Wait for Pi to boot (~15-20s)
-- [ ] Dashboard appears with data cycling through all 6 gears
-- [ ] Gear display shows 1→2→3→4→5→6 then back down
-- [ ] "N" flashes briefly during each shift
-- [ ] Speed increases with each gear, matches RPM
-- [ ] G-force screen shows moving dot and trace history
-- [ ] C4 Corvette screen shows sweeping bars
-- [ ] Pull SD card — verify LOG_001.csv has data rows with all columns
+| App | Platform | Cost | Drive sync |
+|-----|----------|------|------------|
+| **Sensor Logger** by Kelvin Choi | iOS + Android | Free / $5 mo Pro | ✅ Built-in (Pro tier) |
+| **RaceChrono** | iOS + Android | Free / $20 Pro | ✅ via Autosync (~$5) |
+| **GPSLogger for Android** | Android only | Free + open source | ✅ Built-in |
 
-### 6.2 Live Mode Test (Without CAN)
+**Easiest setup:** Sensor Logger Pro — single app, GPS + accel + gyro at high rate, auto-uploads CSV to Drive when each recording stops.
 
-- [ ] Disconnect PB0 from GND (live mode)
-- [ ] Power on both boards
-- [ ] Dashboard shows zeros (no CAN data yet, which is expected)
-- [ ] If GPS has sky view: lat/lon should populate after 30-60s
-- [ ] If MPU-6050 is wired: tilt the breadboard, accel values should change on the G-force screen
-- [ ] Clutch: short PB8 to GND, gear should show "N"
+**Best racing UX:** RaceChrono Pro — designed for lap timing, video overlay, exports `.vbo` and CSV.
 
-### 6.3 Pi → STM32 Flashing Test
+### Mounting
 
-Verify you can flash the STM32 from the Pi (for in-car updates).
-
-**Automated (from dashboard):** Go to Settings → Update tab → press "FLASH STM32".
-The Pi controls BOOT0 and NRST via GPIO17/GPIO27 automatically — no jumper changes needed.
-
-**Manual (command line):**
-
-```bash
-# On the Pi:
-sudo apt install -y stm32flash
-
-# The Pi controls BOOT0 (GPIO17) and NRST (GPIO27) automatically,
-# but if testing manually, you can set BOOT0 HIGH and reset:
-#   gpio -g write 17 1 && gpio -g write 27 0 && sleep 0.1 && gpio -g write 27 1
-
-# Flash:
-stm32flash -w /home/pi/dash/firmware.bin -v -g 0x0 /dev/ttyAMA0
-
-# Return to normal mode:
-#   gpio -g write 17 0 && gpio -g write 27 0 && sleep 0.1 && gpio -g write 27 1
-```
-
-- [ ] `stm32flash` installed on Pi (`sudo apt install -y stm32flash`)
-- [ ] GPIO17 → BOOT0 and GPIO27 → NRST wired
-- [ ] Place `firmware.bin` in `/home/pi/dash/` (copy from PlatformIO build: `.pio/build/genericSTM32F103RC/firmware.bin`)
-- [ ] Successfully flashed STM32 from Settings → Update → FLASH STM32
-- [ ] STM32 runs new firmware after automatic reset
+Mount the phone rigidly to the chassis (not the steering column or anything that moves independently of the car). A RAM mount on the roll cage works. The accelerometer needs to feel the car's motion, not your hand.
 
 ---
 
-## 7. Car Installation
+## 6. First Power-On Test
 
-Only after bench testing is 100% working.
+In order:
 
-### 7.1 Power
+1. **Pi boot test (no Nano)** — power Pi alone. Dashboard appears in sim mode within ~15 sec. RPM sweeps, gear changes, gauges animate.
+2. **Nano standalone test** — Nano on USB, Serial Monitor at 115200, no Speeduino. See `# Race Dash Nano starting` and `# No Speeduino response`.
+3. **Nano ↔ Speeduino test** — Nano on USB, Speeduino powered. Open Serial Monitor — you should see CSV lines like `8500,0,75,0,180,98,0,0,0,0,...`. RPM should change with throttle.
+4. **Nano ↔ Pi test** — disconnect Nano from USB, power both from the car (or bench supply). Voltage divider must be wired. Dashboard should switch out of sim mode and show live RPM/CLT/throttle.
+5. **End-to-end** — engine running, dashboard live, no flickering, no `# parse error` messages on the Pi log.
 
-```
-Car 12V battery ──→ 5V buck converter ──┬──→ Pi 5V (via USB or GPIO pin 2/4)
-                                         ├──→ STM32 5V pin (board has its own 3.3V regulator)
-                                         └──→ 5V sensor supply (brake, steering)
-
-⚠ Add a 1A fuse between the battery and buck converter
-⚠ Use a common ground point — all GND wires star-grounded to one spot
-⚠ Keep power wires away from CAN/UART signal wires (noise!)
-```
-
-- [ ] Buck converter mounted, outputting clean 5V (verify with multimeter)
-- [ ] Fuse installed
-- [ ] Star ground point established
-- [ ] Pi and STM32 power up cleanly from car battery
-
-### 7.2 Mounting
-
-- [ ] Display mounted in driver's line of sight (consider sun glare)
-- [ ] Pi mounted behind display (ventilation — it runs hot at 100% CPU)
-- [ ] STM32 + CAN transceiver mounted near the wiring harness
-- [ ] MPU-6050 mounted flat, near center of gravity, screwed down solid (vibration = noise)
-- [ ] GPS antenna facing sky (top of chassis, not under carbon fiber)
-- [ ] SD card accessible for removal between sessions
-- [ ] Clutch switch mounted on clutch lever/perch
-- [ ] All connectors strain-relieved and secured with zip ties
-
-### 7.3 Wire Routing
-
-- [ ] CAN bus (CANH/CANL) is twisted pair, separate from power wires
-- [ ] UART line (PA9→GPIO15) kept short and away from ignition coils
-- [ ] Analog sensor wires (brake, steering) shielded or routed away from spark plug wires
-- [ ] All wires secured — nothing hanging near exhaust, chain, or suspension
+- [ ] All five tests pass
 
 ---
 
-## 8. Quick Reference — Complete Pin Map
+## 7. Future Expansion
 
-```
-STM32F103RCT6 Pin Assignments
-═══════════════════════════════════════════════════════════
+Sections to add when you wire up the matching hardware. Code stubs for these already exist in earlier firmware versions and can be ported in:
 
-PA0  ── Analog 0 (brake pressure, through voltage divider)
-PA1  ── Analog 1 (steering angle, through voltage divider)
-PA2  ── UART2 TX → GPS RX
-PA3  ── UART2 RX ← GPS TX
-PA4  ── SPI1 CS  → SD card CS
-PA5  ── SPI1 SCK → SD card SCK
-PA6  ── SPI1 MISO ← SD card MISO
-PA7  ── SPI1 MOSI → SD card MOSI
-PA9  ── UART1 TX → Pi GPIO15 (RX)   ★ Main data link
-PA10 ── UART1 RX ← Pi GPIO14 (TX)   (reserved, unused)
-PA11 ── CAN RX ← SN65HVD230 R
-PA12 ── CAN TX → SN65HVD230 D
+| Feature | Pin | Wiring |
+|---------|-----|--------|
+| **VSS speed sensor** | D2 (INT0) | Hall sensor → LM393 comparator → D2; `INPUT_PULLUP` |
+| **Brake pressure** | A0 | 0.5–4.5V sensor direct to A0 (5V supply) |
+| **Clutch switch** | D5 | Switch between D5 and GND; `INPUT_PULLUP` |
+| **MCP9600 thermocouples (×4)** | A4/A5 (same I2C bus) | Addresses 0x60–0x63 via ADDR resistor |
+| **SD card logging** | D10–D13 (SPI) | 5V SD breakout, CS = D10 |
+| **Status LED** | D9 | LED + 330Ω to GND |
 
-PB0  ── Sim mode jumper (LOW = sim, internal pull-up)
-PB1  ── nRF24 CE
-PB3  ── VSS pulse input (from LM393 comparator, rising edge interrupt)
-PB6  ── I2C1 SCL → MPU-6050 SCL--
-PB7  ── I2C1 SDA → MPU-6050 SDA
-PB8  ── Clutch switch (LOW = clutch in, internal pull-up)
-PB12 ── SPI2 CSN → nRF24 CSN
-PB13 ── SPI2 SCK → nRF24 SCK
-PB14 ── SPI2 MISO ← nRF24 MISO
-PB15 ── SPI2 MOSI → nRF24 MOSI
-
-PC13 ── Onboard LED (active low)
-
-Pi Zero 2W GPIO:
-  GPIO14 (TX)  → STM32 PA10 (RX)    (reserved)
-  GPIO15 (RX)  ← STM32 PA9 (TX)     ★ Main data link
-  GPIO16       ← Screen cycle button (to GND, internal pull-up)
-  GPIO17       → STM32 BOOT0        ★ Flash control (HIGH = bootloader)
-  GPIO27       → STM32 NRST         ★ Flash control (pulse LOW = reset)
-  GND ─────────── STM32 GND         ★ Common ground
-```
+> **Don't wire all of these at once.** Add one feature, flash matching firmware, verify it on the dash, then move on. That way if something breaks you know exactly which connection introduced it.
 
 ---
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
-### Pi shows no data (all zeros, no screen changes)
-
-1. Check UART wiring: PA9 → GPIO15, GND → GND
-2. Verify serial console is disabled: `cat /boot/firmware/cmdline.txt` should NOT contain `console=serial0`
-3. Test manually: `python3 -c "import serial; s=serial.Serial('/dev/ttyAMA0',115200,timeout=2); print(s.readline())"`
-4. Check STM32 is running: LED should be blinking (500ms sim, 2s live)
-
-### IMU says "not found on I2C"
-
-1. Check SDA (PB7) and SCL (PB6) — don't swap them
-2. Verify AD0 is connected to GND
-3. Check pull-ups: measure voltage on SDA/SCL with multimeter — should be ~3.3V when idle
-4. Try a shorter I2C cable (I2C is sensitive to long wires)
-
-### SD card fails to initialize
-
-1. Confirm card is FAT32 (not exFAT — cards >32GB default to exFAT)
-2. Verify you're using a 3.3V module (not 5V with regulator)
-3. Check SPI wiring, especially MISO/MOSI (easy to swap)
-4. Try a different SD card — some cheap ones don't support SPI mode
-
-### GPS never gets a fix
-
-1. Needs clear sky view — won't work indoors
-2. First fix takes 30-60 seconds, cold start can take 5+ minutes
-3. Check UART wiring: GPS TX → PA3, GPS RX → PA2
-4. Verify GPS module LED blinks (1 PPS blink = has fix)
-
-### Gear always shows N / 0
-
-1. Clutch switch: verify PB8 is HIGH when clutch is out (multimeter)
-2. Need both RPM >1500 AND speed >5 mph for gear detection
-3. If you changed sprockets: update `FINAL_RATIO` in firmware and reflash
-4. Check `GEAR_MATCH_TOL` — increase to 0.10 if gears aren't matching
-
-### CAN bus not working
-
-1. CAN is not yet implemented in firmware (TODO) — this is expected
-2. When implemented: verify 120Ω termination at both ends
-3. Check that SN65HVD230 Rs pin is tied to GND
-4. Verify Speeduino is configured to broadcast on CAN (not just serial)
-
-### Speed sensor (VSS) reads zero or erratic values
-
-1. Check LM393 comparator output with multimeter: should toggle 0V / 3.3V when spinning wheel
-2. If output stays at 3.3V constantly: check bias resistors on IN- (should sit at ~1.65V)
-3. If output is noisy/jittery: add 100pF cap on IN+ and 100KΩ hysteresis feedback
-4. Verify PB3 wiring — it must be the comparator output, not the raw reluctor signal
-5. If speed reads way too high or low: check VSS_TEETH constant (28 for CBR 600RR stock)
-6. If you changed sprockets: update FINAL_RATIO in firmware
+| Symptom | Likely cause |
+|---------|--------------|
+| Pi shows sim mode forever | UART wiring wrong; Pi serial console not disabled; wrong baud |
+| Pi shows "no data" then sim mode falls back | Voltage divider wired backward (10K/20K swapped — output too low) |
+| Garbage on Pi: `# parse error` flooding | Baud mismatch; ground bounce (no common GND); wrong pin for divider tap |
+| Nano won't upload, `stk500_recv()` error | Wrong processor option; Speeduino still on D0; wrong COM port |
+| Nano upload OK but no Serial Monitor output | Wrong baud in monitor (must be 115200) |
+| `# No Speeduino response` forever | Wrong RX/TX direction; Speeduino secondary serial not enabled in TunerStudio |
+| MPU-6050 not detected | SDA/SCL swapped; AD0 floating (changes address from 0x68 to 0x69); no power; bare breakout without onboard regulator/pull-ups (then add a level shifter) |
+| Dashboard runs but won't autostart | systemd service not enabled; check `journalctl -u racedash` |
+| Display upside down | `display_rotate=2` in `/boot/firmware/config.txt` |
 
 ---
 
-## 10. File Inventory
+## 9. Differences From The Old STM32 Build
 
-```
-stm32_firmware/
-├── platformio.ini          # PlatformIO build config
-└── src/
-    └── main.cpp            # All STM32 firmware
+If you previously had the STM32 + CAN bus version working, here's what changed:
 
-Pi dashboard (copy to /home/pi/dash/):
-├── race_dash_config.py     # Configuration, units, colors, settings
-├── race_dash_core.py       # UART thread, CSV parser, signal buffer
-├── race_dash_pygame.py     # PyGame rendering, 10 screens, settings UI
-└── race_dash_updater.py    # STM32 flashing (GPIO + stm32flash) & Pi git pull
-```
+| Old (STM32) | New (Nano) |
+|-------------|------------|
+| STM32F103RCT6 | Arduino Nano (ATmega328P) |
+| CAN bus + transceiver | Speeduino RS232 secondary serial |
+| ST-Link or DFU upload | USB upload via Arduino IDE |
+| Pi flashed STM32 over UART (BOOT0/NRST) | Just plug Nano into a laptop USB |
+| 3.3V everywhere | 5V Nano — voltage divider on Pi link, level shifter on I2C |
+| nRF24 telemetry to pit | Phone app uploads to Google Drive instead |
+| GPS on Nano UART2 | GPS on phone (no wiring) |
 
----
-
-## 11. What's Working vs TODO
-
-| Feature | Status |
-|---------|--------|
-| UART CSV to Pi (15 fields, 25Hz) | ✅ Working |
-| GPS position + speed | ✅ Working |
-| MPU-6050 accelerometer (3-axis g-force) | ✅ Working |
-| SD card logging (100Hz, 22 columns) | ✅ Working |
-| Gear calculation (CBR 600RR ratios) | ✅ Working |
-| Clutch switch input | ✅ Working |
-| Simulation mode | ✅ Working |
-| Analog inputs (brake, steering) | ✅ Working (needs calibration) |
-| 10 dashboard screens + settings | ✅ Working |
-| G-force display with trace history | ✅ Working |
-| CAN bus (Speeduino decode) | ❌ TODO — wiring ready, firmware needs eXoCAN |
-| nRF24 telemetry to pit | ❌ TODO — wiring ready, firmware needs RF24 |
-| Lap timing | ❌ TODO — needs GPS geofence or IR beacon |
-| In-app STM32 flashing (Settings → Update) | ✅ Working (needs GPIO17→BOOT0, GPIO27→NRST) |
-| In-app Pi software update (git pull) | ✅ Working |
-| Pi boot optimization | ⚡ Optional — works now, just slow (~15-20s) |
+The Pi side (pygame app, CSV format, autostart) is unchanged.

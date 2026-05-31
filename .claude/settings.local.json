@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python \"C:/Users/craft/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/a1442faa-b065-4024-9fb5-125dcba2cc3c/11348dab-a73e-4824-b09d-721eb98ecf6c/skills/docx/scripts/office/unpack.py\" \"fsae_dashboard_documentation \\(2\\).docx\" unpacked_docx/)"
+      "Bash(python \"C:/Users/craft/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/a1442faa-b065-4024-9fb5-125dcba2cc3c/11348dab-a73e-4824-b09d-721eb98ecf6c/skills/docx/scripts/office/unpack.py\" \"fsae_dashboard_documentation \\(2\\).docx\" unpacked_docx/)",
+      "Bash(python -c ' *)",
+      "Bash(python generate_claude_md.py)",
+      "Bash(python sync_vault.py)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import uuid; print\\(uuid.uuid4\\(\\)\\)\")",
+      "Bash(del \"C:\\\\projects\\\\projects\\\\conversations\\\\2026-05-05-Test-Speed-Note.md\")",
+      "Bash(python -c \"import PySide6; print\\('PySide6 ok'\\)\")",
+      "Bash(python -c \"import OpenGL; print\\('PyOpenGL ok'\\)\")",
+      "Bash(python graph_viewer.py)"
     ]
   }
 }
